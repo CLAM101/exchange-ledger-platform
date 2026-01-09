@@ -1,0 +1,176 @@
+version: "3.8"
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: exchange-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: ledger
+      MYSQL_USER: ledger_user
+      MYSQL_PASSWORD: ledger_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (optional, for caching/rate limiting)
+  redis:
+    image: redis:7-alpine
+    container_name: exchange-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Ledger Service
+  ledger:
+    build:
+      context: .
+      dockerfile: cmd/ledger/Dockerfile
+    container_name: exchange-ledger
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=ledger_user
+      - DB_PASSWORD=ledger_pass
+      - DB_NAME=ledger
+      - GRPC_PORT=9001
+      - METRICS_PORT=9091
+    ports:
+      - "9001:9001"
+      - "9091:9091"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:9001"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Account Service
+  account:
+    build:
+      context: .
+      dockerfile: cmd/account/Dockerfile
+    container_name: exchange-account
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=ledger_user
+      - DB_PASSWORD=ledger_pass
+      - DB_NAME=ledger
+      - GRPC_PORT=9002
+      - METRICS_PORT=9092
+    ports:
+      - "9002:9002"
+      - "9092:9092"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:9002"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Wallet Service
+  wallet:
+    build:
+      context: .
+      dockerfile: cmd/wallet/Dockerfile
+    container_name: exchange-wallet
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=ledger_user
+      - DB_PASSWORD=ledger_pass
+      - DB_NAME=ledger
+      - LEDGER_ADDR=ledger:9001
+      - ACCOUNT_ADDR=account:9002
+      - GRPC_PORT=9003
+      - METRICS_PORT=9093
+    ports:
+      - "9003:9003"
+      - "9093:9093"
+    depends_on:
+      ledger:
+        condition: service_healthy
+      account:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:9003"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Gateway Service (HTTP REST API)
+  gateway:
+    build:
+      context: .
+      dockerfile: cmd/gateway/Dockerfile
+    container_name: exchange-gateway
+    environment:
+      - LEDGER_ADDR=ledger:9001
+      - ACCOUNT_ADDR=account:9002
+      - WALLET_ADDR=wallet:9003
+      - HTTP_PORT=8080
+      - METRICS_PORT=9094
+    ports:
+      - "8080:8080"
+      - "9094:9094"
+    depends_on:
+      ledger:
+        condition: service_healthy
+      account:
+        condition: service_healthy
+      wallet:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: exchange-prometheus
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: exchange-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  mysql_data:
+  prometheus_data:
+  grafana_data:

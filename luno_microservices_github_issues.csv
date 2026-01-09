@@ -1,0 +1,307 @@
+"Title","Body","Labels"
+"T0.1 Repo bootstrap and standards","## Goal
+Establish project skeleton, conventions, and local dev entrypoints for the microservices repo.
+
+## Deliverables
+- Monorepo structure: /cmd, /internal, /proto, /deploy, /docs
+- Makefile targets: up, down, test, lint, demo
+- Initial docker-compose.yml placeholder (services stubbed)
+- Go module init + pinned tool versions (golangci-lint, buf/protoc)
+- Conventions doc (errors, context usage, logging format)
+
+## Acceptance Criteria
+- `make test` runs successfully (even if only skeleton tests)
+- `make lint` runs and passes
+- Repo builds on a clean machine with documented prerequisites","infra,backlog,foundation"
+"T0.2 Observability baseline shared package","## Goal
+Standardize structured logging and Prometheus metrics across all services.
+
+## Dependencies
+- T0.1 Repo bootstrap and standards
+
+## Deliverables
+- Shared package: /internal/platform/observability
+- Structured logger (zap or zerolog) with consistent fields
+- HTTP /metrics endpoint per service (Prometheus format)
+- Common metric labels: service, method, status
+
+## Acceptance Criteria
+- Each service exposes /metrics
+- Request count + latency metrics recorded for gRPC and HTTP gateway
+- Logs include request correlation identifiers where applicable","infra,observability,foundation"
+"T0.3 gRPC platform baseline (server/client)","## Goal
+Provide shared gRPC bootstrap with interceptors for logging, metrics, and panic recovery.
+
+## Dependencies
+- T0.1 Repo bootstrap and standards
+- T0.2 Observability baseline shared package
+
+## Deliverables
+- Shared package: /internal/platform/grpc
+- Unary interceptor chain: logging, metrics, panic recovery
+- Client defaults: per-call deadlines/timeouts, keepalive (optional)
+- Enable server reflection for local debugging (grpcurl/evans)
+
+## Acceptance Criteria
+- New services can adopt the shared gRPC bootstrap with minimal boilerplate
+- Interceptor metrics visible in Prometheus and logs
+- grpcurl can list services locally via reflection","infra,grpc,foundation"
+"T1.1 Ledger v1 domain model + invariants (unit tests first)","## Goal
+Define the ledger domain model and enforce core accounting invariants for a single asset (e.g., BTC satoshis).
+
+## Dependencies
+- T0.1 Repo bootstrap and standards
+
+## Deliverables
+- Domain types: Posting, Transaction, AccountID, Asset, Amount (int64 satoshis)
+- Validation rules: balanced postings (sum==0), non-zero amounts, consistent asset, no overdraft on user accounts
+- Table-driven unit tests for invariants
+- Optional: Go fuzz tests for balancing/validation
+
+## Acceptance Criteria
+- Unbalanced transactions are rejected with clear error
+- Overdraft attempts are rejected for user accounts
+- Unit tests cover at least: balanced/unbalanced, invalid amounts, overdraft, asset mismatch","ledger,backend,tests"
+"T1.2 Ledger MySQL schema + migrations","## Goal
+Create the MySQL schema and migrations for an append-only ledger with idempotency.
+
+## Dependencies
+- T0.1 Repo bootstrap and standards
+
+## Deliverables
+- Migration tool configured (goose or golang-migrate)
+- Tables: ledger_transactions (tx_id, idempotency_key unique, reference, created_at, status)
+- Tables: ledger_entries (entry_id, tx_id FK, account_id, amount signed int64, asset, created_at)
+- Optional materialized balances table: ledger_balances (account_id, asset, balance) with indexes
+- Indexes for account/time queries and idempotency uniqueness
+
+## Acceptance Criteria
+- Migrations run cleanly against local MySQL
+- Unique idempotency key enforced at DB level
+- Entries can be queried efficiently by account_id and created_at","ledger,database,backend"
+"T1.3 Ledger repository (MySQL) + integration tests","## Goal
+Implement atomic posting and safe balance enforcement with real MySQL integration tests.
+
+## Dependencies
+- T1.1 Ledger v1 domain model + invariants (unit tests first)
+- T1.2 Ledger MySQL schema + migrations
+
+## Deliverables
+- Repository interface + MySQL implementation
+- Atomic DB transaction: insert transaction + entries (+ update balances if materialized)
+- Overdraft prevention using row locks (SELECT ... FOR UPDATE) where applicable
+- Integration tests using MySQL container (docker-compose): idempotency replay, atomic rollback, concurrency safety
+
+## Acceptance Criteria
+- Posting is atomic: partial failures do not persist any entries
+- Idempotency: repeated same key returns same tx outcome without double effects
+- Concurrency test: two concurrent debits cannot create negative balance","ledger,database,tests"
+"T1.4 Ledger gRPC API (proto) + server implementation","## Goal
+Expose ledger operations via gRPC with correct status codes and validation.
+
+## Dependencies
+- T0.3 gRPC platform baseline (server/client)
+- T1.3 Ledger repository (MySQL) + integration tests
+
+## Deliverables
+- Protobuf service: PostTransaction, GetBalance, ListEntries (pagination)
+- Error mapping: InvalidArgument (malformed), FailedPrecondition (insufficient funds), AlreadyExists (idempotency conflict)
+- Server implementation using domain validation + repository
+- Enable reflection for grpcurl demos
+
+## Acceptance Criteria
+- PostTransaction rejects invalid postings and enforces overdraft rules
+- GetBalance reflects latest committed postings
+- ListEntries returns stable paginated results","ledger,grpc,backend"
+"T1.5 Ledger health + metrics hardening","## Goal
+Make the ledger service operable with health checks and key metrics.
+
+## Dependencies
+- T1.4 Ledger gRPC API (proto) + server implementation
+- T0.2 Observability baseline shared package
+
+## Deliverables
+- gRPC health service enabled
+- Readiness/liveness endpoints (or gRPC health probes in k8s)
+- Metrics: request latency/counts, posted tx count, idempotency replay count, DB error count
+
+## Acceptance Criteria
+- Kubernetes can use readiness/liveness probes successfully
+- Prometheus scrapes ledger metrics and dashboards can display core signals
+- Logs include tx_id and idempotency_key for write operations","ledger,observability,ops"
+"T2.1 Account service schema + repository","## Goal
+Implement minimal user storage and mapping to ledger account IDs.
+
+## Dependencies
+- T0.1 Repo bootstrap and standards
+
+## Deliverables
+- MySQL tables: users (user_id, email, created_at)
+- Optional: user_accounts (user_id, asset, ledger_account_id)
+- Repository with unit tests and basic integration test
+
+## Acceptance Criteria
+- CreateUser persists user and returns stable user_id
+- GetUser returns correct record and handles not-found cleanly","account,database,backend"
+"T2.2 Account gRPC API + implementation","## Goal
+Expose minimal identity operations for other services.
+
+## Dependencies
+- T0.3 gRPC platform baseline (server/client)
+- T2.1 Account service schema + repository
+
+## Deliverables
+- Protobuf service: CreateUser, GetUser, GetLedgerAccount (v1 returns `user:<id>` for BTC)
+- gRPC server implementation using repository
+- Input validation (email format basic), error mapping
+
+## Acceptance Criteria
+- Wallet/gateway can create and retrieve users via gRPC
+- Ledger account mapping is deterministic and documented","account,grpc,backend"
+"T3.1 Deposit workflow (wallet orchestrator)","## Goal
+Implement deposit orchestration that credits a user via the ledger using idempotent references.
+
+## Dependencies
+- T1.4 Ledger gRPC API (proto) + server implementation
+- T2.2 Account gRPC API + implementation
+
+## Deliverables
+- Wallet gRPC API: Deposit(user_id, amount, reference, idempotency_key)
+- Translate to ledger PostTransaction postings: external -amount, user:<id> +amount
+- Pass-through idempotency to ledger and return tx_id
+
+## Acceptance Criteria
+- Deposit increases user balance
+- Retry with same idempotency key does not double-credit
+- Invalid user or invalid amount returns clear error","wallet,grpc,backend"
+"T3.2 Withdraw reservation + finalize workflow","## Goal
+Implement a two-step withdrawal flow (reserve then finalize) with correct ledger postings and failure handling.
+
+## Dependencies
+- T3.1 Deposit workflow (wallet orchestrator)
+- T1.3 Ledger repository (MySQL) + integration tests
+
+## Deliverables
+- Wallet gRPC API: InitiateWithdrawal(user_id, amount, reference, idempotency_key) -> withdrawal_id
+- Wallet gRPC API: FinalizeWithdrawal(withdrawal_id, result) (success/fail)
+- MySQL table: withdrawals (id, user_id, amount, state, reference, created_at, updated_at)
+- Initiate postings: user:<id> -amount, custody:pending +amount
+- Finalize success postings: custody:pending -amount, external +amount
+- Finalize failure postings: custody:pending -amount, user:<id> +amount
+
+## Acceptance Criteria
+- Initiate decreases user available balance immediately (reservation semantics)
+- Finalize success clears pending and leaves user debited
+- Finalize failure releases funds back to user
+- Flow is idempotent at each stage (no double-finalize effects)","wallet,database,backend"
+"T3.3 Wallet observability + failure simulation","## Goal
+Add operational signals and controlled failure simulation to demonstrate reliability thinking.
+
+## Dependencies
+- T3.2 Withdraw reservation + finalize workflow
+- T0.2 Observability baseline shared package
+
+## Deliverables
+- Configurable failure injection for finalize step (simulate broadcast failure)
+- Metrics: withdrawals initiated/finalized, finalize failures, retries, timeouts
+- Structured logs include withdrawal_id, reference, ledger tx_id
+
+## Acceptance Criteria
+- Demo can show failure then recovery without balance corruption
+- Metrics reflect failure counts and success rates","wallet,observability,ops"
+"T4.1 HTTP Gateway REST API wired to gRPC services","## Goal
+Expose a human-friendly REST interface (curl/Postman) that calls internal gRPC services.
+
+## Dependencies
+- T2.2 Account gRPC API + implementation
+- T3.2 Withdraw reservation + finalize workflow
+- T0.2 Observability baseline shared package
+
+## Deliverables
+- HTTP server (net/http) with request logging + metrics
+- Endpoints: POST /users, POST /deposit, POST /withdraw/initiate, POST /withdraw/finalize, GET /balances/:userId, GET /ledger/:userId/entries
+- Input validation and error translation
+- gRPC clients to Account, Wallet, Ledger with deadlines
+
+## Acceptance Criteria
+- All key flows runnable via curl
+- Gateway returns useful HTTP status codes and messages
+- Gateway timeouts and retries do not cause double effects (idempotency keys used)","gateway,http,backend"
+"T4.2 OpenAPI + optional Swagger UI + Postman collection","## Goal
+Make the demo frictionless for reviewers with API docs and ready-made requests.
+
+## Dependencies
+- T4.1 HTTP Gateway REST API wired to gRPC services
+
+## Deliverables
+- OpenAPI spec for gateway endpoints (handwritten acceptable)
+- Optional Swagger UI container in docker-compose
+- Postman collection in /docs/postman.json
+
+## Acceptance Criteria
+- Reviewer can import Postman collection and run through flows quickly
+- OpenAPI spec matches deployed gateway behavior","gateway,docs"
+"T5.1 docker-compose full stack (services + observability)","## Goal
+Provide a one-command local runtime for the entire system.
+
+## Dependencies
+- T1.5 Ledger health + metrics hardening
+- T3.3 Wallet observability + failure simulation
+- T4.1 HTTP Gateway REST API wired to gRPC services
+
+## Deliverables
+- docker-compose services: mysql, (redis optional), ledger, account, wallet, gateway, prometheus, grafana
+- Stable ports and environment variables
+- Network config and service health checks
+
+## Acceptance Criteria
+- `make up` brings the stack up cleanly
+- Prometheus scrapes all services and Grafana can connect
+- `make down` cleans up volumes optionally","infra,docker,observability"
+"T5.2 Demo scenario script (make demo)","## Goal
+Provide a deterministic scripted walkthrough to prove correctness (idempotency + reservations) without a UI.
+
+## Dependencies
+- T5.1 docker-compose full stack (services + observability)
+
+## Deliverables
+- scripts/demo.sh or Go-based runner that calls gateway endpoints
+- Scenario: create two users, deposit, transfer (optional), initiate withdrawal, finalize success and failure, print balances and sample entries
+- Include explicit idempotency retry step to show no double-credit/debit
+
+## Acceptance Criteria
+- `make demo` completes successfully on a clean machine
+- Output is readable and clearly shows state transitions
+- Demonstrates at least one failure case and recovery","demo,dx,infra"
+"T6.1 Kubernetes manifests (local cluster compatible)","## Goal
+Package the services for Kubernetes (EKS-style) and validate on a local cluster (kind/minikube).
+
+## Dependencies
+- T1.5 Ledger health + metrics hardening
+- T4.1 HTTP Gateway REST API wired to gRPC services
+
+## Deliverables
+- k8s manifests: Deployments + Services for each component
+- ConfigMaps/Secrets examples
+- Readiness/liveness probes
+- Optional HPA for gateway and ledger
+
+## Acceptance Criteria
+- `kubectl apply -f deploy/k8s` works on kind/minikube
+- Pods become Ready and services routable
+- Health probes behave correctly under restarts","kubernetes,ops,infra"
+"T7.1 Architecture docs + runbook + ADRs","## Goal
+Document architecture, invariants, and operating procedures in a reviewer-friendly format.
+
+## Dependencies
+- T5.2 Demo scenario script (make demo)
+
+## Deliverables
+- docs/architecture.md (service boundaries, data flows, sequence diagrams optional)
+- docs/ledger.md (invariants, idempotency, reservation model)
+- docs/runbook.md (how to run, debug, metrics, common failures)
+- docs/adrs/*.md (integer amounts, idempotency design, reservations)
+
+## Acceptance Criteria
+- Reviewer can run the system and understand design tradeoffs quickly
+- Docs describe how correctness is ensured and how to observe issues","docs,architecture"

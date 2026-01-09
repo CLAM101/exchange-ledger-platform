@@ -1,0 +1,24 @@
+{
+  // Go extension settings
+  "go.useLanguageServer": true,
+  
+  // Use golangci-lint with project config
+  "go.lintTool": "golangci-lint",
+  "go.lintFlags": [
+    "--config=${workspaceFolder}/.golangci.yml"
+  ],
+  "go.lintOnSave": "workspace",
+  
+  // Format settings
+  "go.formatTool": "goimports",
+  "[go]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": true
+    }
+  },
+  
+  // Build and vet on save
+  "go.buildOnSave": "workspace",
+  "go.vetOnSave": "workspace"
+}
