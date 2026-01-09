@@ -1,0 +1,6 @@
+# Pinned tool versions for reproducible builds
+golang 1.21.5
+golangci-lint 1.55.2
+buf 1.28.1
+protoc 25.1
+
