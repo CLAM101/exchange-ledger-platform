@@ -1,3 +1,5 @@
+// Package main is the entry point for the account service.
+// The account service handles user account and identity management.
 package main
 
 import (
@@ -5,10 +7,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -23,13 +29,38 @@ func run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	logger, err := observability.NewLogger("account")
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	defer func() {
+		_ = logger.Sync() //nolint:errcheck // Sync errors are acceptable in defer
+	}()
+
+	metrics := observability.NewMetrics("account")
+
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", metrics.Handler())
+		metricsPort := getEnv("METRICS_PORT", "9092")
+		server := &http.Server{
+			Addr:              ":" + metricsPort,
+			Handler:           mux,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		logger.Info("metrics endpoint starting", zap.String("port", metricsPort))
+		if serveErr := server.ListenAndServe(); serveErr != nil {
+			logger.Error("metrics server failed", zap.Error(serveErr))
+		}
+	}()
+
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
 		<-sigChan
-		log.Println("shutting down account service...")
+		logger.Info("shutting down account service...")
 		cancel()
 	}()
 
@@ -47,7 +78,7 @@ func run() error {
 	// Enable reflection for grpcurl/evans
 	reflection.Register(grpcServer)
 
-	log.Printf("Account service listening on port %s", port)
+	logger.Info("Account service listening", zap.String("port", port))
 
 	// Start gRPC server
 	errChan := make(chan error, 1)
@@ -59,10 +90,11 @@ func run() error {
 
 	select {
 	case <-ctx.Done():
-		log.Println("context cancelled, shutting down...")
+		logger.Info("context cancelled, shutting down")
 		grpcServer.GracefulStop()
 		return nil
 	case err := <-errChan:
+		logger.Error("failed to serve", zap.Error(err))
 		return err
 	}
 }
