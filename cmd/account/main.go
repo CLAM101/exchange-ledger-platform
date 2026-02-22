@@ -13,10 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	platformgrpc "github.com/CLAM101/exchange-ledger-platform/internal/platform/grpc"
 	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
 )
 
 func main() {
@@ -70,13 +69,10 @@ func run() error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := platformgrpc.NewServer(logger, metrics)
 
 	// TODO: Register service implementations
 	// accountpb.RegisterAccountServiceServer(grpcServer, accountService)
-
-	// Enable reflection for grpcurl/evans
-	reflection.Register(grpcServer)
 
 	logger.Info("Account service listening", zap.String("port", port))
 
