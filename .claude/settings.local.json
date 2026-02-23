@@ -14,15 +14,6 @@
             "command": "bash .claude/scripts/format-go.sh"
           }
         ]
-      },
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/scripts/explain-changes.sh"
-          }
-        ]
       }
     ]
   }

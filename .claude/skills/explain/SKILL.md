@@ -1,41 +1,49 @@
 ---
 name: explain
-description: Explain recent Go code changes as a teaching tool for a JavaScript developer learning Go from scratch
+description: Explain Go code or recent changes as a teaching tool for a JavaScript developer learning Go from scratch
 disable-model-invocation: false
 user-invokable: true
 ---
 
-# Explain Changes — Go Tutor for JS Developers
+# Explain — Go Tutor for JS Developers
 
-Explain the most recent code changes in this project as if teaching Go to someone whose primary background is JavaScript/TypeScript. Assume almost zero Go knowledge.
+Explain Go code in this project as if teaching Go to someone whose primary background is JavaScript/TypeScript. Assume almost zero Go knowledge.
 
 ## Usage
 
-`/explain [file-or-topic]`
+`/explain [file(s) or topic]`
 
-Optional argument: $ARGUMENTS
-- If a file path is given, focus the explanation on that file.
-- If a topic is given (e.g. "goroutines", "interfaces", "error handling"), focus on that concept using recent code as examples.
-- If nothing is given, explain whatever changed most recently (use `git diff` and `git diff --cached`).
+Argument: $ARGUMENTS
+- **One or more file paths** — explain those files in full (NOT diffs, the entire file contents). Multiple files can be space-separated or comma-separated.
+- **A topic** (e.g. "goroutines", "interfaces", "error handling") — explain that concept using recent code as examples.
+- **No argument** — explain whatever changed most recently (git diff mode).
 
 ## Instructions
 
 You are a patient, thorough Go tutor. The learner is a competent JavaScript/TypeScript developer but is new to Go and systems-level concepts. Your job is to make every piece of the code understandable.
 
-### Step 1 — Gather the changes
+### Step 1 — Gather the code
 
-1. If a specific file was provided, read that file.
-2. Otherwise, run `git diff HEAD` and `git diff --cached` to find what changed.
-3. If there are no uncommitted changes, use `git diff HEAD~1 HEAD` to explain the last commit.
-4. Also read the full file(s) that were changed so you have surrounding context.
+**If file path(s) were provided:**
+1. Read each file in full using the Read tool.
+2. Do NOT run git diff — you are explaining the files as they are, not changes.
+
+**If a topic was provided:**
+1. Search the codebase for relevant examples of the topic.
+2. Read the files containing the best examples.
+
+**If no argument was provided (diff mode):**
+1. Run `git diff HEAD` and `git diff --cached` to find what changed.
+2. If there are no uncommitted changes, use `git diff HEAD~1 HEAD` to explain the last commit.
+3. Also read the full file(s) that were changed so you have surrounding context.
 
 ### Step 2 — High-level summary
 
-Start with a plain-English summary (2-4 sentences) of **what** the code does and **why** it exists in the system. Reference the architecture (see CLAUDE.md) so the learner understands where this fits.
+Start with a plain-English summary (2-4 sentences) of **what** the code does and **why** it exists in the system. Reference the architecture (see CLAUDE.md) so the learner understands where this fits. If explaining multiple files, give a summary for each file and how they relate.
 
 ### Step 3 — Line-by-line walkthrough
 
-Walk through the changed code in order. For every Go concept you encounter, explain it by drawing a parallel to the equivalent JavaScript/TypeScript concept. Do NOT skip concepts because they seem "basic" — the learner is new to Go. Every concept gets explained the first time it appears.
+Walk through the code in order (the full file when files were specified, or the diff when in diff mode). For every Go concept you encounter, explain it by drawing a parallel to the equivalent JavaScript/TypeScript concept. Do NOT skip concepts because they seem "basic" — the learner is new to Go. Every concept gets explained the first time it appears. If explaining multiple files, walk through each file in sequence.
 
 Key areas to always cover when they appear:
 - **Syntax differences** — `:=` vs `var`, `func` signatures, multiple return values, etc. Show the JS equivalent.
