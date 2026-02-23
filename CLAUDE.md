@@ -102,6 +102,7 @@ logger.Info("transaction posted",
 - Table-driven tests with subtests
 - Use `t.Parallel()` for independent tests
 - Integration tests: `// +build integration`
+- **TDD workflow:** write tests first, but only run `go test` once the implementation exists. Use `go build` to verify compilation in between.
 
 ### Database
 ```go
@@ -132,9 +133,9 @@ Each service follows this structure in `cmd/<service>/main.go`:
 
 ## Current State
 
-- **Complete:** T0.1 (bootstrap), T0.2 (observability package)
-- **In Progress:** T0.3 (gRPC platform baseline)
-- **Next:** T1.x (Ledger service implementation)
+- **Complete:** T0.1 (bootstrap), T0.2 (observability package), T0.3 (gRPC platform baseline)
+- **In Progress:** T1.1 (Ledger domain model + invariants)
+- **Next:** T1.2 (Ledger MySQL schema + migrations)
 
 ## Gotchas
 
