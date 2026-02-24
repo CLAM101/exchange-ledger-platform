@@ -133,9 +133,8 @@ Each service follows this structure in `cmd/<service>/main.go`:
 
 ## Current State
 
-- **Complete:** T0.1 (bootstrap), T0.2 (observability package), T0.3 (gRPC platform baseline)
-- **In Progress:** T1.1 (Ledger domain model + invariants)
-- **Next:** T1.2 (Ledger MySQL schema + migrations)
+- **Complete:** T0.1 (bootstrap), T0.2 (observability package), T0.3 (gRPC platform baseline), T1.1 (Ledger domain model + invariants), T1.2 (Ledger MySQL schema + migrations)
+- **Next:** T1.3 (Ledger repository)
 
 ## Gotchas
 

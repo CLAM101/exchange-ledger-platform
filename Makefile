@@ -51,6 +51,8 @@ build:
 	go build -o bin/wallet ./cmd/wallet
 	@echo "Building gateway service..."
 	go build -o bin/gateway ./cmd/gateway
+	@echo "Building migrate tool..."
+	go build -o bin/migrate ./cmd/migrate
 
 # Run demo scenario
 demo:
