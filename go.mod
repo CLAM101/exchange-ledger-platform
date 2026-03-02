@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/golang-migrate/migrate/v4 v4.19.1
+	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2
 	go.uber.org/zap v1.27.1
 	google.golang.org/grpc v1.78.0

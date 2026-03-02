@@ -1,7 +1,22 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh issue view:*)"
+      "Bash(make lint)",
+      "Bash(make test)",
+      "Bash(make build)",
+      "Bash(make fmt)",
+      "Bash(make proto)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go mod tidy)",
+      "Bash(git:*)",
+      "Bash(gh issue:*)",
+      "Bash(gh pr:*)",
+      "Bash(docker-compose ps)",
+      "Bash(docker-compose logs:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebSearch"
     ]
   },
   "hooks": {

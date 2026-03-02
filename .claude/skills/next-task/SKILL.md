@@ -52,5 +52,5 @@ requirements to the user and ask if they are ready to begin.
 
 Tell the user:
 - What was written to the handoff
-- That they can now close this session and open a new one in the VSCode extension
+- That they can now close this session and start a new one (terminal or VSCode — both work)
 - The new session will automatically pick up from where we left off

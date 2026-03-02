@@ -13,6 +13,7 @@ var (
 	ErrAssetMismatch = errors.New("all postings must use the same asset")
 	ErrUnbalanced    = errors.New("postings must sum to zero")
 	ErrOverdraft     = errors.New("transaction would overdraft account")
+	ErrNotFound      = errors.New("not found")
 )
 
 // Validate checks the structural invariants of a transaction:
