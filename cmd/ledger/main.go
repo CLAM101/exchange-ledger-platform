@@ -75,6 +75,10 @@ func run() error {
 	}
 	defer db.Close() //nolint:errcheck // Best-effort close on shutdown
 
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
 	if pingErr := db.PingContext(ctx); pingErr != nil {
 		return fmt.Errorf("pinging database: %w", pingErr)
 	}
