@@ -131,11 +131,14 @@ Each service follows this structure in `cmd/<service>/main.go`:
 - Tickets follow phases: T0 (infra), T1 (ledger), T2 (account), T3 (wallet), T7 (ops)
 - **Do NOT add `Co-Authored-By: Claude` or any AI attribution to commit messages**
 - **NEVER commit generated code** — `proto/gen/` is in `.gitignore`. Run `make proto` locally to regenerate.
+- **Always update the "Current State" section** in this file when completing a ticket — move the ticket to "Complete" and update "Next".
 
 ## Current State
 
-- **Complete:** T0.1 (bootstrap), T0.2 (observability package), T0.3 (gRPC platform baseline), T1.1 (Ledger domain model + invariants), T1.2 (Ledger MySQL schema + migrations)
-- **Next:** T1.3 (Ledger repository)
+**IMPORTANT:** Always update this section when completing a ticket. This must stay accurate.
+
+- **Complete:** T0.1 (bootstrap), T0.2 (observability package), T0.3 (gRPC platform baseline), T1.1 (Ledger domain model + invariants), T1.2 (Ledger MySQL schema + migrations), T1.3 (Ledger repository), T1.4 (Ledger gRPC API + server)
+- **Next:** T1.5 (Ledger health + metrics hardening)
 
 ## Gotchas
 
