@@ -130,6 +130,7 @@ Each service follows this structure in `cmd/<service>/main.go`:
 - Branch format: `{issue#}-{ticket-id}` (e.g., `3-t03-grpc-platform-baseline`)
 - Tickets follow phases: T0 (infra), T1 (ledger), T2 (account), T3 (wallet), T7 (ops)
 - **Do NOT add `Co-Authored-By: Claude` or any AI attribution to commit messages**
+- **NEVER commit generated code** — `proto/gen/` is in `.gitignore`. Run `make proto` locally to regenerate.
 
 ## Current State
 

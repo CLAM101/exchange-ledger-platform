@@ -25,6 +25,10 @@ profile.cov
 go.work
 go.work.sum
 
+# Generated protobuf code
+proto/gen/
+gen/
+
 # env file
 .env
 

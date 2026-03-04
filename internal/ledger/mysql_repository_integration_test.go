@@ -77,7 +77,7 @@ func runMigrations(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("creating migrate instance: %w", err)
 	}
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 	return nil
@@ -243,11 +243,11 @@ func TestPostTransaction_Overdraft(t *testing.T) {
 
 	// Verify no rows were created (atomic rollback).
 	var txCount int
-	if err := testDB.QueryRowContext(context.Background(),
+	if countErr := testDB.QueryRowContext(context.Background(),
 		`SELECT COUNT(*) FROM ledger_transactions WHERE idempotency_key = ?`,
 		"idem-overdraft-1",
-	).Scan(&txCount); err != nil {
-		t.Fatalf("counting transactions: %v", err)
+	).Scan(&txCount); countErr != nil {
+		t.Fatalf("counting transactions: %v", countErr)
 	}
 	if txCount != 0 {
 		t.Errorf("transaction count = %d, want 0 (rolled back)", txCount)
@@ -298,11 +298,12 @@ func TestPostTransaction_ConcurrentDebits(t *testing.T) {
 
 	var successes, overdrafts int
 	for err := range results {
-		if err == nil {
+		switch {
+		case err == nil:
 			successes++
-		} else if errors.Is(err, ledger.ErrOverdraft) {
+		case errors.Is(err, ledger.ErrOverdraft):
 			overdrafts++
-		} else {
+		default:
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
@@ -367,5 +368,174 @@ func TestGetTransaction_Found(t *testing.T) {
 	}
 	if len(fetched.Postings) != 2 {
 		t.Errorf("postings count = %d, want 2", len(fetched.Postings))
+	}
+}
+
+// --- Test: ListEntries ---
+
+func TestListEntries_Empty(t *testing.T) {
+	truncateTables(t)
+	repo := newRepo(t)
+
+	entries, err := repo.ListEntries(context.Background(), "no-such-acc", "BTC", 0, 10)
+	if err != nil {
+		t.Fatalf("ListEntries: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(entries))
+	}
+}
+
+func TestListEntries_SinglePage(t *testing.T) {
+	truncateTables(t)
+	repo := newRepo(t)
+
+	seedBalance(t, "acc_list", "BTC", 10000)
+
+	// Post two transactions so acc_list has 2 entries.
+	for i := 0; i < 2; i++ {
+		tx := ledger.Transaction{
+			IdempotencyKey: fmt.Sprintf("idem-list-%d", i),
+			Postings: []ledger.Posting{
+				{AccountID: "acc_list", Asset: "BTC", Amount: -1000},
+				{AccountID: "acc_other", Asset: "BTC", Amount: 1000},
+			},
+		}
+		if _, err := repo.PostTransaction(context.Background(), tx); err != nil {
+			t.Fatalf("PostTransaction %d: %v", i, err)
+		}
+	}
+
+	entries, err := repo.ListEntries(context.Background(), "acc_list", "BTC", 0, 10)
+	if err != nil {
+		t.Fatalf("ListEntries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	// Entries are ordered by entry_id ascending.
+	if entries[0].EntryID >= entries[1].EntryID {
+		t.Errorf("entries not ordered: %d >= %d", entries[0].EntryID, entries[1].EntryID)
+	}
+	for _, e := range entries {
+		if e.AccountID != "acc_list" {
+			t.Errorf("unexpected account_id: %s", e.AccountID)
+		}
+		if e.Asset != "BTC" {
+			t.Errorf("unexpected asset: %s", e.Asset)
+		}
+		if e.Amount != -1000 {
+			t.Errorf("unexpected amount: %d", e.Amount)
+		}
+	}
+}
+
+func TestListEntries_Pagination(t *testing.T) {
+	truncateTables(t)
+	repo := newRepo(t)
+
+	seedBalance(t, "acc_page", "BTC", 100000)
+
+	// Create 5 entries for acc_page.
+	for i := 0; i < 5; i++ {
+		tx := ledger.Transaction{
+			IdempotencyKey: fmt.Sprintf("idem-page-%d", i),
+			Postings: []ledger.Posting{
+				{AccountID: "acc_page", Asset: "BTC", Amount: -100},
+				{AccountID: "acc_sink", Asset: "BTC", Amount: 100},
+			},
+		}
+		if _, err := repo.PostTransaction(context.Background(), tx); err != nil {
+			t.Fatalf("PostTransaction %d: %v", i, err)
+		}
+	}
+
+	// Page 1: limit 2
+	page1, err := repo.ListEntries(context.Background(), "acc_page", "BTC", 0, 2)
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("page 1: expected 2 entries, got %d", len(page1))
+	}
+
+	// Page 2: cursor = last entry_id from page 1
+	page2, err := repo.ListEntries(context.Background(), "acc_page", "BTC", page1[1].EntryID, 2)
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("page 2: expected 2 entries, got %d", len(page2))
+	}
+
+	// Page 3: should have 1 remaining entry
+	page3, err := repo.ListEntries(context.Background(), "acc_page", "BTC", page2[1].EntryID, 2)
+	if err != nil {
+		t.Fatalf("page 3: %v", err)
+	}
+	if len(page3) != 1 {
+		t.Fatalf("page 3: expected 1 entry, got %d", len(page3))
+	}
+
+	// All entry IDs should be unique and ascending across pages.
+	allIDs := make([]int64, 0, 5)
+	for _, e := range page1 {
+		allIDs = append(allIDs, e.EntryID)
+	}
+	for _, e := range page2 {
+		allIDs = append(allIDs, e.EntryID)
+	}
+	for _, e := range page3 {
+		allIDs = append(allIDs, e.EntryID)
+	}
+	for i := 1; i < len(allIDs); i++ {
+		if allIDs[i] <= allIDs[i-1] {
+			t.Errorf("entry IDs not strictly ascending: %v", allIDs)
+			break
+		}
+	}
+}
+
+func TestListEntries_AssetFilter(t *testing.T) {
+	truncateTables(t)
+	repo := newRepo(t)
+
+	seedBalance(t, "acc_multi", "BTC", 10000)
+	seedBalance(t, "acc_multi", "ETH", 10000)
+
+	// Post BTC transaction.
+	txBTC := ledger.Transaction{
+		IdempotencyKey: "idem-asset-btc",
+		Postings: []ledger.Posting{
+			{AccountID: "acc_multi", Asset: "BTC", Amount: -500},
+			{AccountID: "acc_other2", Asset: "BTC", Amount: 500},
+		},
+	}
+	if _, err := repo.PostTransaction(context.Background(), txBTC); err != nil {
+		t.Fatalf("PostTransaction BTC: %v", err)
+	}
+
+	// Post ETH transaction.
+	txETH := ledger.Transaction{
+		IdempotencyKey: "idem-asset-eth",
+		Postings: []ledger.Posting{
+			{AccountID: "acc_multi", Asset: "ETH", Amount: -300},
+			{AccountID: "acc_other3", Asset: "ETH", Amount: 300},
+		},
+	}
+	if _, err := repo.PostTransaction(context.Background(), txETH); err != nil {
+		t.Fatalf("PostTransaction ETH: %v", err)
+	}
+
+	// List only BTC entries for acc_multi.
+	entries, err := repo.ListEntries(context.Background(), "acc_multi", "BTC", 0, 10)
+	if err != nil {
+		t.Fatalf("ListEntries BTC: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 BTC entry, got %d", len(entries))
+	}
+	if entries[0].Asset != "BTC" {
+		t.Errorf("expected BTC, got %s", entries[0].Asset)
 	}
 }

@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -37,7 +38,7 @@ func (r *MySQLRepository) PostTransaction(ctx context.Context, tx Transaction) (
 	if err != nil {
 		return nil, fmt.Errorf("beginning transaction: %w", err)
 	}
-	defer dbTx.Rollback()
+	defer dbTx.Rollback() //nolint:errcheck // Rollback after commit returns ErrTxDone which is expected
 
 	// Idempotency check: return existing result if already posted.
 	existing, err := r.findByIdempotencyKey(ctx, dbTx, tx.IdempotencyKey)
@@ -81,13 +82,13 @@ func (r *MySQLRepository) PostTransaction(ctx context.Context, tx Transaction) (
 			pair.accountID, pair.asset,
 		).Scan(&balance)
 
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			// Row doesn't exist yet — insert a zero-balance row.
-			if _, err := dbTx.ExecContext(ctx,
+			if _, execErr := dbTx.ExecContext(ctx,
 				`INSERT INTO ledger_balances (account_id, asset, balance) VALUES (?, ?, 0)`,
 				pair.accountID, pair.asset,
-			); err != nil {
-				return nil, fmt.Errorf("inserting balance row %s/%s: %w", pair.accountID, pair.asset, err)
+			); execErr != nil {
+				return nil, fmt.Errorf("inserting balance row %s/%s: %w", pair.accountID, pair.asset, execErr)
 			}
 			balance = 0
 		} else if err != nil {
@@ -164,7 +165,7 @@ func (r *MySQLRepository) GetTransaction(ctx context.Context, idempotencyKey str
 		 FROM ledger_transactions WHERE idempotency_key = ?`, idempotencyKey,
 	).Scan(&tx.ID, &tx.IdempotencyKey, &tx.CreatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
@@ -188,13 +189,48 @@ func (r *MySQLRepository) GetBalance(ctx context.Context, accountID AccountID, a
 		string(accountID), string(asset),
 	).Scan(&balance)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, fmt.Errorf("querying balance for %s/%s: %w", accountID, asset, err)
 	}
 	return Amount(balance), nil
+}
+
+// ListEntries returns ledger entries for an account and asset pair, ordered
+// by entry_id ascending. cursor is the last entry_id seen (0 for the first
+// page). Returns at most limit entries.
+func (r *MySQLRepository) ListEntries(ctx context.Context, accountID AccountID, asset Asset, cursor int64, limit int) ([]Entry, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT entry_id, tx_id, account_id, asset, amount, created_at
+		 FROM ledger_entries
+		 WHERE account_id = ? AND asset = ? AND entry_id > ?
+		 ORDER BY entry_id ASC
+		 LIMIT ?`,
+		string(accountID), string(asset), cursor, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying entries for %s/%s: %w", accountID, asset, err)
+	}
+	defer rows.Close() //nolint:errcheck // rows.Err() is checked after iteration
+
+	var entries []Entry
+	for rows.Next() {
+		var e Entry
+		var acctID, assetStr string
+		if err := rows.Scan(&e.EntryID, &e.TxID, &acctID, &assetStr, &e.Amount, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scanning entry: %w", err)
+		}
+		e.AccountID = AccountID(acctID)
+		e.Asset = Asset(assetStr)
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating entries: %w", err)
+	}
+
+	return entries, nil
 }
 
 // findByIdempotencyKey checks if a transaction with the given key already
@@ -206,7 +242,7 @@ func (r *MySQLRepository) findByIdempotencyKey(ctx context.Context, dbTx *sql.Tx
 		 FROM ledger_transactions WHERE idempotency_key = ?`, key,
 	).Scan(&tx.ID, &tx.IdempotencyKey, &tx.CreatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -236,7 +272,7 @@ func (r *MySQLRepository) loadPostings(ctx context.Context, q queryable, txID st
 	if err != nil {
 		return nil, fmt.Errorf("querying entries for tx %s: %w", txID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // rows.Err() is checked after iteration
 
 	var postings []Posting
 	for rows.Next() {

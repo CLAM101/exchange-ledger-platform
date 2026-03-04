@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package ledger.v1;
+
+option go_package = "github.com/CLAM101/exchange-ledger-platform/proto/gen/ledger/v1;ledgerv1";
+
+import "google/protobuf/timestamp.proto";
+
+service LedgerService {
+  // PostTransaction atomically records a balanced double-entry transaction.
+  // Idempotent: replaying the same idempotency_key returns the existing result.
+  rpc PostTransaction(PostTransactionRequest) returns (PostTransactionResponse);
+
+  // GetBalance returns the current balance for an account and asset pair.
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+
+  // ListEntries returns ledger entries for an account and asset, with
+  // cursor-based pagination.
+  rpc ListEntries(ListEntriesRequest) returns (ListEntriesResponse);
+}
+
+// Posting is one leg of a double-entry transaction.
+message Posting {
+  string account_id = 1;
+  string asset = 2;
+  int64 amount = 3;
+}
+
+// Transaction is a balanced set of postings applied atomically.
+message Transaction {
+  string id = 1;
+  string idempotency_key = 2;
+  repeated Posting postings = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message PostTransactionRequest {
+  string idempotency_key = 1;
+  repeated Posting postings = 2;
+}
+
+message PostTransactionResponse {
+  Transaction transaction = 1;
+}
+
+message GetBalanceRequest {
+  string account_id = 1;
+  string asset = 2;
+}
+
+message GetBalanceResponse {
+  string account_id = 1;
+  string asset = 2;
+  int64 balance = 3;
+}
+
+// Entry is a persisted ledger entry (one posting within a committed transaction).
+message Entry {
+  int64 entry_id = 1;
+  string tx_id = 2;
+  string account_id = 3;
+  string asset = 4;
+  int64 amount = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListEntriesRequest {
+  string account_id = 1;
+  string asset = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListEntriesResponse {
+  repeated Entry entries = 1;
+  string next_page_token = 2;
+}

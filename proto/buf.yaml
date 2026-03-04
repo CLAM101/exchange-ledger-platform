@@ -1,5 +1,5 @@
 version: v1
-name: buf.build/exchange-ledger-platform
+name: buf.build/clam101/exchange-ledger-platform
 breaking:
   use:
     - FILE
@@ -13,4 +13,3 @@ lint:
   rpc_allow_google_protobuf_empty_requests: true
   rpc_allow_google_protobuf_empty_responses: true
   service_suffix: Service
-
