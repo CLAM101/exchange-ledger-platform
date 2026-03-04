@@ -9,6 +9,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -22,8 +23,14 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	if len(os.Args) < 2 {
-		log.Fatal("usage: migrate <up|down|version>")
+		return fmt.Errorf("usage: migrate <up|down|version>")
 	}
 	cmd := os.Args[1]
 
@@ -31,49 +38,51 @@ func main() {
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		log.Fatalf("opening database: %v", err)
+		return fmt.Errorf("opening database: %w", err)
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck // Best-effort close on shutdown
 
-	if err := db.Ping(); err != nil {
-		log.Fatalf("pinging database: %v", err)
+	if err = db.Ping(); err != nil {
+		return fmt.Errorf("pinging database: %w", err)
 	}
 
 	source, err := iofs.New(migrations.FS, ".")
 	if err != nil {
-		log.Fatalf("creating migration source: %v", err)
+		return fmt.Errorf("creating migration source: %w", err)
 	}
 
 	driver, err := mysql.WithInstance(db, &mysql.Config{})
 	if err != nil {
-		log.Fatalf("creating migration driver: %v", err)
+		return fmt.Errorf("creating migration driver: %w", err)
 	}
 
 	m, err := migrate.NewWithInstance("iofs", source, "mysql", driver)
 	if err != nil {
-		log.Fatalf("creating migrate instance: %v", err)
+		return fmt.Errorf("creating migrate instance: %w", err)
 	}
 
 	switch cmd {
 	case "up":
-		if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-			log.Fatalf("migration up: %v", err)
+		if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+			return fmt.Errorf("migration up: %w", err)
 		}
 		log.Println("migrations applied successfully")
 	case "down":
-		if err := m.Steps(-1); err != nil && err != migrate.ErrNoChange {
-			log.Fatalf("migration down: %v", err)
+		if err := m.Steps(-1); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+			return fmt.Errorf("migration down: %w", err)
 		}
 		log.Println("migration rolled back successfully")
 	case "version":
 		version, dirty, err := m.Version()
 		if err != nil {
-			log.Fatalf("getting version: %v", err)
+			return fmt.Errorf("getting version: %w", err)
 		}
 		log.Printf("version: %d, dirty: %v", version, dirty)
 	default:
-		log.Fatalf("unknown command: %s (expected up, down, or version)", cmd)
+		return fmt.Errorf("unknown command: %s (expected up, down, or version)", cmd)
 	}
+
+	return nil
 }
 
 func buildDSN() string {

@@ -1,3 +1,5 @@
+// Package ledger implements core double-entry accounting, balance tracking,
+// and overdraft prevention for the exchange ledger platform.
 package ledger
 
 import "time"
@@ -26,4 +28,15 @@ type Transaction struct {
 	IdempotencyKey string
 	Postings       []Posting
 	CreatedAt      time.Time
+}
+
+// Entry is a persisted ledger entry — one posting within a committed transaction,
+// with its database-assigned entry_id and timestamp.
+type Entry struct {
+	EntryID   int64
+	TxID      string
+	AccountID AccountID
+	Asset     Asset
+	Amount    Amount
+	CreatedAt time.Time
 }

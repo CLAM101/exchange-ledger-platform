@@ -18,4 +18,9 @@ type Repository interface {
 	// GetBalance returns the current balance for an account and asset pair.
 	// Returns 0 if no balance row exists (account has never transacted).
 	GetBalance(ctx context.Context, accountID AccountID, asset Asset) (Amount, error)
+
+	// ListEntries returns ledger entries for an account and asset pair,
+	// ordered by entry_id ascending. cursor is the last entry_id seen
+	// (0 for the first page). Returns at most limit entries.
+	ListEntries(ctx context.Context, accountID AccountID, asset Asset, cursor int64, limit int) ([]Entry, error)
 }

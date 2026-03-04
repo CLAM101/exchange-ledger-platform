@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net"
@@ -13,9 +14,13 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
+	"go.uber.org/zap"
+
+	"github.com/CLAM101/exchange-ledger-platform/internal/ledger"
 	platformgrpc "github.com/CLAM101/exchange-ledger-platform/internal/platform/grpc"
 	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
-	"go.uber.org/zap"
+	ledgerv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/ledger/v1"
 )
 
 func main() {
@@ -63,6 +68,25 @@ func run() error {
 		cancel()
 	}()
 
+	// Connect to MySQL.
+	db, err := sql.Open("mysql", buildDSN())
+	if err != nil {
+		return fmt.Errorf("opening database: %w", err)
+	}
+	defer db.Close() //nolint:errcheck // Best-effort close on shutdown
+
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	if pingErr := db.PingContext(ctx); pingErr != nil {
+		return fmt.Errorf("pinging database: %w", pingErr)
+	}
+	logger.Info("connected to database")
+
+	repo := ledger.NewMySQLRepository(db, logger)
+	handler := ledger.NewServer(repo, logger)
+
 	port := getEnv("GRPC_PORT", "9001")
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
 	if err != nil {
@@ -70,9 +94,7 @@ func run() error {
 	}
 
 	grpcServer := platformgrpc.NewServer(logger, metrics)
-
-	// TODO: Register service implementations
-	// ledgerpb.RegisterLedgerServiceServer(grpcServer, ledgerService)
+	ledgerv1.RegisterLedgerServiceServer(grpcServer, handler)
 
 	logger.Info("Ledger service listening", zap.String("port", port))
 
@@ -93,6 +115,17 @@ func run() error {
 		logger.Error("failed to serve", zap.Error(err))
 		return err
 	}
+}
+
+func buildDSN() string {
+	host := getEnv("DB_HOST", "localhost")
+	port := getEnv("DB_PORT", "3306")
+	user := getEnv("DB_USER", "ledger_user")
+	pass := getEnv("DB_PASSWORD", "ledger_pass")
+	name := getEnv("DB_NAME", "ledger")
+
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
+		user, pass, host, port, name)
 }
 
 func getEnv(key, defaultValue string) string {
