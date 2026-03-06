@@ -6,7 +6,6 @@ import (
 
 	platformgrpc "github.com/CLAM101/exchange-ledger-platform/internal/platform/grpc"
 	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
@@ -127,26 +126,8 @@ func TestLoggingInterceptor(t *testing.T) {
 	}
 }
 
-// newTestMetrics creates a Metrics instance backed by a custom registry
-// so tests don't collide with the global Prometheus registry.
 func newTestMetrics() *observability.Metrics {
-	reg := prometheus.NewRegistry()
-
-	requestTotal := prometheus.NewCounterVec(
-		prometheus.CounterOpts{Name: "test_requests_total"},
-		[]string{"method", "status"},
-	)
-	requestDuration := prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{Name: "test_request_duration_seconds", Buckets: prometheus.DefBuckets},
-		[]string{"method", "status"},
-	)
-
-	reg.MustRegister(requestTotal, requestDuration)
-
-	return &observability.Metrics{
-		RequestTotal:    requestTotal,
-		RequestDuration: requestDuration,
-	}
+	return observability.NewTestMetrics()
 }
 
 func TestMetricsInterceptor(t *testing.T) {

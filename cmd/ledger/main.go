@@ -16,12 +16,16 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/CLAM101/exchange-ledger-platform/internal/ledger"
 	platformgrpc "github.com/CLAM101/exchange-ledger-platform/internal/platform/grpc"
 	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
 	ledgerv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/ledger/v1"
 )
+
+const serviceName = "ledger"
 
 func main() {
 	if err := run(); err != nil {
@@ -33,7 +37,7 @@ func run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	logger, err := observability.NewLogger("ledger")
+	logger, err := observability.NewLogger(serviceName)
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
@@ -41,7 +45,7 @@ func run() error {
 		_ = logger.Sync() //nolint:errcheck // Sync errors are acceptable in defer
 	}()
 
-	metrics := observability.NewMetrics("ledger")
+	metrics := observability.NewMetrics(serviceName)
 
 	go func() {
 		mux := http.NewServeMux()
@@ -84,7 +88,15 @@ func run() error {
 	}
 	logger.Info("connected to database")
 
-	repo := ledger.NewMySQLRepository(db, logger)
+	// Health service.
+	hs := health.NewServer()
+	hs.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	hs.SetServingStatus(serviceName, healthpb.HealthCheckResponse_SERVING)
+
+	dbChecker := platformgrpc.NewDBHealthChecker(db)
+	go platformgrpc.WatchHealth(ctx, hs, serviceName, dbChecker, 10*time.Second, logger)
+
+	repo := ledger.NewMySQLRepository(db, logger, metrics)
 	handler := ledger.NewServer(repo, logger)
 
 	port := getEnv("GRPC_PORT", "9001")
@@ -93,7 +105,7 @@ func run() error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	grpcServer := platformgrpc.NewServer(logger, metrics)
+	grpcServer := platformgrpc.NewServer(logger, metrics, hs)
 	ledgerv1.RegisterLedgerServiceServer(grpcServer, handler)
 
 	logger.Info("Ledger service listening", zap.String("port", port))
@@ -109,6 +121,8 @@ func run() error {
 	select {
 	case <-ctx.Done():
 		logger.Info("context cancelled, shutting down")
+		hs.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+		hs.SetServingStatus(serviceName, healthpb.HealthCheckResponse_NOT_SERVING)
 		grpcServer.GracefulStop()
 		return nil
 	case err := <-errChan:

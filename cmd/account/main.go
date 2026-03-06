@@ -69,7 +69,7 @@ func run() error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	grpcServer := platformgrpc.NewServer(logger, metrics)
+	grpcServer := platformgrpc.NewServer(logger, metrics, nil)
 
 	// TODO: Register service implementations
 	// accountpb.RegisterAccountServiceServer(grpcServer, accountService)

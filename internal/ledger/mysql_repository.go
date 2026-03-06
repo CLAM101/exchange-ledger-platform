@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+
+	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
 )
 
 // StatusPosted is the status value for a successfully committed transaction.
@@ -17,13 +19,20 @@ const StatusPosted = "posted"
 
 // MySQLRepository implements Repository using a MySQL database.
 type MySQLRepository struct {
-	db     *sql.DB
-	logger *zap.Logger
+	db      *sql.DB
+	logger  *zap.Logger
+	metrics *observability.Metrics
 }
 
 // NewMySQLRepository creates a new MySQLRepository.
-func NewMySQLRepository(db *sql.DB, logger *zap.Logger) *MySQLRepository {
-	return &MySQLRepository{db: db, logger: logger}
+func NewMySQLRepository(db *sql.DB, logger *zap.Logger, metrics *observability.Metrics) *MySQLRepository {
+	return &MySQLRepository{db: db, logger: logger, metrics: metrics}
+}
+
+// dbErr increments the DB error counter and wraps the error with context.
+func (r *MySQLRepository) dbErr(err error, msg string, args ...any) error {
+	r.metrics.DBErrorTotal.Inc()
+	return fmt.Errorf("%s: %w", fmt.Sprintf(msg, args...), err)
 }
 
 // PostTransaction atomically records a double-entry transaction. If a
@@ -36,16 +45,21 @@ func (r *MySQLRepository) PostTransaction(ctx context.Context, tx Transaction) (
 
 	dbTx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("beginning transaction: %w", err)
+		return nil, r.dbErr(err, "beginning transaction")
 	}
 	defer dbTx.Rollback() //nolint:errcheck // Rollback after commit returns ErrTxDone which is expected
 
 	// Idempotency check: return existing result if already posted.
 	existing, err := r.findByIdempotencyKey(ctx, dbTx, tx.IdempotencyKey)
 	if err != nil {
-		return nil, fmt.Errorf("checking idempotency: %w", err)
+		return nil, r.dbErr(err, "checking idempotency")
 	}
 	if existing != nil {
+		r.metrics.IdempotencyReplay.Inc()
+		r.logger.Info("idempotency replay",
+			zap.String("tx_id", existing.ID),
+			zap.String("idempotency_key", existing.IdempotencyKey),
+		)
 		return existing, nil
 	}
 
@@ -88,11 +102,11 @@ func (r *MySQLRepository) PostTransaction(ctx context.Context, tx Transaction) (
 				`INSERT INTO ledger_balances (account_id, asset, balance) VALUES (?, ?, 0)`,
 				pair.accountID, pair.asset,
 			); execErr != nil {
-				return nil, fmt.Errorf("inserting balance row %s/%s: %w", pair.accountID, pair.asset, execErr)
+				return nil, r.dbErr(execErr, "inserting balance row %s/%s", pair.accountID, pair.asset)
 			}
 			balance = 0
 		} else if err != nil {
-			return nil, fmt.Errorf("locking balance %s/%s: %w", pair.accountID, pair.asset, err)
+			return nil, r.dbErr(err, "locking balance %s/%s", pair.accountID, pair.asset)
 		}
 
 		balances[AccountID(pair.accountID)] = Amount(balance)
@@ -115,7 +129,7 @@ func (r *MySQLRepository) PostTransaction(ctx context.Context, tx Transaction) (
 		 VALUES (?, ?, '', ?, ?)`,
 		tx.ID, tx.IdempotencyKey, StatusPosted, tx.CreatedAt,
 	); err != nil {
-		return nil, fmt.Errorf("inserting transaction: %w", err)
+		return nil, r.dbErr(err, "inserting transaction")
 	}
 
 	// Insert entry rows (one per posting).
@@ -125,7 +139,7 @@ func (r *MySQLRepository) PostTransaction(ctx context.Context, tx Transaction) (
 			 VALUES (?, ?, ?, ?, ?)`,
 			tx.ID, string(p.AccountID), int64(p.Amount), string(p.Asset), tx.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("inserting entry for %s: %w", p.AccountID, err)
+			return nil, r.dbErr(err, "inserting entry for %s", p.AccountID)
 		}
 	}
 
@@ -140,13 +154,15 @@ func (r *MySQLRepository) PostTransaction(ctx context.Context, tx Transaction) (
 			`UPDATE ledger_balances SET balance = balance + ? WHERE account_id = ? AND asset = ?`,
 			deltas[pair], pair.accountID, pair.asset,
 		); err != nil {
-			return nil, fmt.Errorf("updating balance for %s/%s: %w", pair.accountID, pair.asset, err)
+			return nil, r.dbErr(err, "updating balance for %s/%s", pair.accountID, pair.asset)
 		}
 	}
 
 	if err := dbTx.Commit(); err != nil {
-		return nil, fmt.Errorf("committing transaction: %w", err)
+		return nil, r.dbErr(err, "committing transaction")
 	}
+
+	r.metrics.TxPostedTotal.Inc()
 
 	r.logger.Info("transaction posted",
 		zap.String("tx_id", tx.ID),
@@ -169,7 +185,7 @@ func (r *MySQLRepository) GetTransaction(ctx context.Context, idempotencyKey str
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("querying transaction: %w", err)
+		return nil, r.dbErr(err, "querying transaction")
 	}
 
 	postings, err := r.loadPostings(ctx, r.db, tx.ID)
@@ -193,7 +209,7 @@ func (r *MySQLRepository) GetBalance(ctx context.Context, accountID AccountID, a
 		return 0, nil
 	}
 	if err != nil {
-		return 0, fmt.Errorf("querying balance for %s/%s: %w", accountID, asset, err)
+		return 0, r.dbErr(err, "querying balance for %s/%s", accountID, asset)
 	}
 	return Amount(balance), nil
 }
@@ -211,23 +227,20 @@ func (r *MySQLRepository) ListEntries(ctx context.Context, accountID AccountID, 
 		string(accountID), string(asset), cursor, limit,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("querying entries for %s/%s: %w", accountID, asset, err)
+		return nil, r.dbErr(err, "querying entries for %s/%s", accountID, asset)
 	}
 	defer rows.Close() //nolint:errcheck // rows.Err() is checked after iteration
 
 	var entries []Entry
 	for rows.Next() {
 		var e Entry
-		var acctID, assetStr string
-		if err := rows.Scan(&e.EntryID, &e.TxID, &acctID, &assetStr, &e.Amount, &e.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scanning entry: %w", err)
+		if err := rows.Scan(&e.EntryID, &e.TxID, &e.AccountID, &e.Asset, &e.Amount, &e.CreatedAt); err != nil {
+			return nil, r.dbErr(err, "scanning entry")
 		}
-		e.AccountID = AccountID(acctID)
-		e.Asset = Asset(assetStr)
 		entries = append(entries, e)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating entries: %w", err)
+		return nil, r.dbErr(err, "iterating entries")
 	}
 
 	return entries, nil
@@ -246,7 +259,7 @@ func (r *MySQLRepository) findByIdempotencyKey(ctx context.Context, dbTx *sql.Tx
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("querying transaction by idempotency key: %w", err)
+		return nil, r.dbErr(err, "querying transaction by idempotency key")
 	}
 
 	postings, err := r.loadPostings(ctx, dbTx, tx.ID)
@@ -270,28 +283,20 @@ func (r *MySQLRepository) loadPostings(ctx context.Context, q queryable, txID st
 		 FROM ledger_entries WHERE tx_id = ? ORDER BY entry_id`, txID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("querying entries for tx %s: %w", txID, err)
+		return nil, r.dbErr(err, "querying entries for tx %s", txID)
 	}
 	defer rows.Close() //nolint:errcheck // rows.Err() is checked after iteration
 
 	var postings []Posting
 	for rows.Next() {
-		var (
-			accountID string
-			amount    int64
-			asset     string
-		)
-		if err := rows.Scan(&accountID, &amount, &asset); err != nil {
-			return nil, fmt.Errorf("scanning entry: %w", err)
+		var p Posting
+		if err := rows.Scan(&p.AccountID, &p.Amount, &p.Asset); err != nil {
+			return nil, r.dbErr(err, "scanning entry")
 		}
-		postings = append(postings, Posting{
-			AccountID: AccountID(accountID),
-			Amount:    Amount(amount),
-			Asset:     Asset(asset),
-		})
+		postings = append(postings, p)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating entries: %w", err)
+		return nil, r.dbErr(err, "iterating entries")
 	}
 
 	return postings, nil

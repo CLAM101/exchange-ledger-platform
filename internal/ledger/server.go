@@ -57,6 +57,10 @@ func (s *Server) PostTransaction(ctx context.Context, req *ledgerv1.PostTransact
 
 	result, err := s.repo.PostTransaction(ctx, tx)
 	if err != nil {
+		s.logger.Warn("PostTransaction failed",
+			zap.String("idempotency_key", req.IdempotencyKey),
+			zap.Error(err),
+		)
 		return nil, domainToStatus(err)
 	}
 
