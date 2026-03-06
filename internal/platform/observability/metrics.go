@@ -11,6 +11,10 @@ import (
 type Metrics struct {
 	RequestTotal    *prometheus.CounterVec   // Total requests
 	RequestDuration *prometheus.HistogramVec // Request latency
+
+	TxPostedTotal     prometheus.Counter // Committed transactions
+	IdempotencyReplay prometheus.Counter // Idempotency key replays
+	DBErrorTotal      prometheus.Counter // Database errors
 }
 
 // NewMetrics creates metrics for a service
@@ -34,11 +38,32 @@ func NewMetrics(serviceName string) *Metrics {
 		[]string{"method", "status"},
 	)
 
-	prometheus.MustRegister(requestTotal, requestDuration)
+	txPostedTotal := prometheus.NewCounter(prometheus.CounterOpts{
+		Name:        "ledger_tx_posted_total",
+		Help:        "Total number of committed transactions",
+		ConstLabels: prometheus.Labels{"service": serviceName},
+	})
+
+	idempotencyReplay := prometheus.NewCounter(prometheus.CounterOpts{
+		Name:        "ledger_idempotency_replay_total",
+		Help:        "Total number of idempotency key replays",
+		ConstLabels: prometheus.Labels{"service": serviceName},
+	})
+
+	dbErrorTotal := prometheus.NewCounter(prometheus.CounterOpts{
+		Name:        "ledger_db_errors_total",
+		Help:        "Total number of database errors",
+		ConstLabels: prometheus.Labels{"service": serviceName},
+	})
+
+	prometheus.MustRegister(requestTotal, requestDuration, txPostedTotal, idempotencyReplay, dbErrorTotal)
 
 	return &Metrics{
-		RequestTotal:    requestTotal,
-		RequestDuration: requestDuration,
+		RequestTotal:      requestTotal,
+		RequestDuration:   requestDuration,
+		TxPostedTotal:     txPostedTotal,
+		IdempotencyReplay: idempotencyReplay,
+		DBErrorTotal:      dbErrorTotal,
 	}
 }
 

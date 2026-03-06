@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/CLAM101/exchange-ledger-platform/internal/ledger"
+	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
 	migrations "github.com/CLAM101/exchange-ledger-platform/migrations"
 )
 
@@ -111,7 +112,7 @@ func seedBalance(t *testing.T, accountID ledger.AccountID, asset ledger.Asset, a
 
 func newRepo(t *testing.T) *ledger.MySQLRepository {
 	t.Helper()
-	return ledger.NewMySQLRepository(testDB, zap.NewNop())
+	return ledger.NewMySQLRepository(testDB, zap.NewNop(), observability.NewTestMetrics())
 }
 
 // --- Test: Successful transaction posting ---

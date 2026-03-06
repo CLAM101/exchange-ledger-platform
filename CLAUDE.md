@@ -68,7 +68,7 @@ docs/                   # conventions.md is the key reference
 
 ## Key Conventions
 
-**Read `docs/conventions.md` for full details.** Summary:
+**IMPORTANT: Always read `docs/conventions.md` before writing or reviewing code.** It is the authoritative style guide. Summary below is a quick reference only — defer to conventions.md when in doubt.
 
 ### Idempotency
 All write operations MUST accept an idempotency key. Check for existing results before processing.

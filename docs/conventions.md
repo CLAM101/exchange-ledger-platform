@@ -272,6 +272,25 @@ func (r *Repository) SaveTransaction(ctx context.Context, tx *Transaction) error
 }
 ```
 
+### Scanning Named Types
+
+When scanning SQL rows into structs that use named types (e.g. `type AccountID string`),
+scan directly into the named type field — do not use intermediate variables with manual conversion.
+Go's `database/sql` driver resolves the underlying type via reflection, so named types based on
+primitives (`string`, `int64`, etc.) work with `Scan` out of the box.
+
+```go
+// Good - scan directly into named type fields
+var e Entry
+rows.Scan(&e.EntryID, &e.TxID, &e.AccountID, &e.Asset, &e.Amount, &e.CreatedAt)
+
+// Bad - unnecessary intermediate variables
+var acctID, assetStr string
+rows.Scan(&e.EntryID, &e.TxID, &acctID, &assetStr, &e.Amount, &e.CreatedAt)
+e.AccountID = AccountID(acctID)
+e.Asset = Asset(assetStr)
+```
+
 ### Connection Management
 
 - Use connection pooling
@@ -334,6 +353,7 @@ func PostTransaction(ctx context.Context, tx *Transaction) error {
 ## Security
 
 - Never log sensitive data (passwords, tokens, full PII)
+- Never expose sensitive data, API keys, passwords, private keys or anything similar. 
 - Validate all inputs
 - Use parameterized queries (no SQL injection)
 - Set timeouts on all external calls

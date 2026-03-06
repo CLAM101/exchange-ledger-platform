@@ -22,6 +22,23 @@ func TestNewMetrics(t *testing.T) {
 		t.Error("RequestDuration is nil")
 	}
 
+	if metrics.TxPostedTotal == nil {
+		t.Error("TxPostedTotal is nil")
+	}
+
+	if metrics.IdempotencyReplay == nil {
+		t.Error("IdempotencyReplay is nil")
+	}
+
+	if metrics.DBErrorTotal == nil {
+		t.Error("DBErrorTotal is nil")
+	}
+
+	// Test that domain counters can be incremented (should not panic)
+	metrics.TxPostedTotal.Inc()
+	metrics.IdempotencyReplay.Inc()
+	metrics.DBErrorTotal.Inc()
+
 	// Test that handler works
 	handler := metrics.Handler()
 	if handler == nil {
