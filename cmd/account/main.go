@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net"
@@ -13,10 +14,17 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
+	"go.uber.org/zap"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+
+	"github.com/CLAM101/exchange-ledger-platform/internal/account"
 	platformgrpc "github.com/CLAM101/exchange-ledger-platform/internal/platform/grpc"
 	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
-	"go.uber.org/zap"
 )
+
+const serviceName = "account"
 
 func main() {
 	if err := run(); err != nil {
@@ -28,7 +36,7 @@ func run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	logger, err := observability.NewLogger("account")
+	logger, err := observability.NewLogger(serviceName)
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
@@ -36,7 +44,7 @@ func run() error {
 		_ = logger.Sync() //nolint:errcheck // Sync errors are acceptable in defer
 	}()
 
-	metrics := observability.NewMetrics("account")
+	metrics := observability.NewMetrics(serviceName)
 
 	go func() {
 		mux := http.NewServeMux()
@@ -63,16 +71,42 @@ func run() error {
 		cancel()
 	}()
 
+	// Connect to MySQL.
+	db, err := sql.Open("mysql", buildDSN())
+	if err != nil {
+		return fmt.Errorf("opening database: %w", err)
+	}
+	defer db.Close() //nolint:errcheck // Best-effort close on shutdown
+
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	if pingErr := db.PingContext(ctx); pingErr != nil {
+		return fmt.Errorf("pinging database: %w", pingErr)
+	}
+	logger.Info("connected to database")
+
+	// Health service.
+	hs := health.NewServer()
+	hs.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	hs.SetServingStatus(serviceName, healthpb.HealthCheckResponse_SERVING)
+
+	dbChecker := platformgrpc.NewDBHealthChecker(db)
+	go platformgrpc.WatchHealth(ctx, hs, serviceName, dbChecker, 10*time.Second, logger)
+
+	// Repository (will be used by gRPC handler in T2.2).
+	_ = account.NewMySQLRepository(db, logger, metrics)
+
 	port := getEnv("GRPC_PORT", "9002")
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	grpcServer := platformgrpc.NewServer(logger, metrics, nil)
+	grpcServer := platformgrpc.NewServer(logger, metrics, hs)
 
-	// TODO: Register service implementations
-	// accountpb.RegisterAccountServiceServer(grpcServer, accountService)
+	// TODO: Register service implementations (T2.2)
 
 	logger.Info("Account service listening", zap.String("port", port))
 
@@ -87,12 +121,25 @@ func run() error {
 	select {
 	case <-ctx.Done():
 		logger.Info("context cancelled, shutting down")
+		hs.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+		hs.SetServingStatus(serviceName, healthpb.HealthCheckResponse_NOT_SERVING)
 		grpcServer.GracefulStop()
 		return nil
 	case err := <-errChan:
 		logger.Error("failed to serve", zap.Error(err))
 		return err
 	}
+}
+
+func buildDSN() string {
+	host := getEnv("DB_HOST", "localhost")
+	port := getEnv("DB_PORT", "3306")
+	user := getEnv("DB_USER", "account_user")
+	pass := getEnv("DB_PASSWORD", "account_pass")
+	name := getEnv("DB_NAME", "account")
+
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
+		user, pass, host, port, name)
 }
 
 func getEnv(key, defaultValue string) string {

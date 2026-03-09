@@ -320,6 +320,11 @@ e.Asset = Asset(assetStr)
 - Profile before optimizing
 - Avoid premature optimization
 - Use benchmarks to measure improvements
+- **Readability over micro-optimizations** — Only trade readability for performance on
+  proven hot paths (high-volume, per-request operations). For low-volume operations
+  (e.g. user registration, account linking), prefer the clearest pattern even if it
+  costs an extra query. A saving that shaves microseconds off a once-per-user-lifetime
+  call is not worth harder-to-read code.
 
 ### Concurrency
 
