@@ -20,7 +20,7 @@ import (
 
 	"github.com/CLAM101/exchange-ledger-platform/internal/ledger"
 	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
-	migrations "github.com/CLAM101/exchange-ledger-platform/migrations"
+	ledgermigrations "github.com/CLAM101/exchange-ledger-platform/migrations/ledger"
 )
 
 var testDB *sql.DB
@@ -55,7 +55,7 @@ func buildTestDSN() string {
 	user := envOrDefault("DB_USER", "ledger_user")
 	pass := envOrDefault("DB_PASSWORD", "ledger_pass")
 	name := envOrDefault("DB_NAME", "ledger")
-	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", user, pass, host, port, name)
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true", user, pass, host, port, name)
 }
 
 func envOrDefault(key, fallback string) string {
@@ -66,7 +66,7 @@ func envOrDefault(key, fallback string) string {
 }
 
 func runMigrations(db *sql.DB) error {
-	source, err := iofs.New(migrations.FS, ".")
+	source, err := iofs.New(ledgermigrations.FS, ".")
 	if err != nil {
 		return fmt.Errorf("creating migration source: %w", err)
 	}

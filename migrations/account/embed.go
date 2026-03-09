@@ -1,5 +1,5 @@
-// Package migrations provides embedded SQL migration files for the ledger schema.
-package migrations
+// Package accountmigrations provides embedded SQL migration files for the account schema.
+package accountmigrations
 
 import "embed"
 
