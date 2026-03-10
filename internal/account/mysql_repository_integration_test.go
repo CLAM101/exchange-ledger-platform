@@ -103,7 +103,7 @@ func newRepo(t *testing.T) *account.MySQLRepository {
 
 // --- Test: CreateUser success ---
 
-func TestCreateUser_Success(t *testing.T) {
+func TestCreateUser_Repo_Success(t *testing.T) {
 	truncateTables(t)
 	repo := newRepo(t)
 
@@ -171,7 +171,7 @@ func TestCreateUser_IdempotencyReplay(t *testing.T) {
 
 // --- Test: CreateUser duplicate email ---
 
-func TestCreateUser_DuplicateEmail(t *testing.T) {
+func TestCreateUser_Repo_DuplicateEmail(t *testing.T) {
 	truncateTables(t)
 	repo := newRepo(t)
 
@@ -221,7 +221,7 @@ func TestGetUser_Found(t *testing.T) {
 
 // --- Test: GetUser not found ---
 
-func TestGetUser_NotFound(t *testing.T) {
+func TestGetUser_Repo_NotFound(t *testing.T) {
 	truncateTables(t)
 	repo := newRepo(t)
 

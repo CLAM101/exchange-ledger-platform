@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package account.v1;
+
+option go_package = "github.com/CLAM101/exchange-ledger-platform/proto/gen/account/v1;accountv1";
+
+import "google/protobuf/timestamp.proto";
+
+service AccountService {
+  // CreateUser registers a new user and auto-links a BTC ledger account.
+  // Idempotent: replaying the same idempotency_key returns the existing result.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+
+  // GetUser retrieves a user by ID.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+
+  // GetLedgerAccount returns the ledger account ID for a user and asset pair.
+  rpc GetLedgerAccount(GetLedgerAccountRequest) returns (GetLedgerAccountResponse);
+}
+
+message User {
+  string id = 1;
+  string email = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string idempotency_key = 2;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message GetLedgerAccountRequest {
+  string user_id = 1;
+  string asset = 2;
+}
+
+message GetLedgerAccountResponse {
+  string user_id = 1;
+  string asset = 2;
+  string ledger_account_id = 3;
+}
