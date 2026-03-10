@@ -22,6 +22,7 @@ import (
 	"github.com/CLAM101/exchange-ledger-platform/internal/account"
 	platformgrpc "github.com/CLAM101/exchange-ledger-platform/internal/platform/grpc"
 	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
+	accountv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/account/v1"
 )
 
 const serviceName = "account"
@@ -95,8 +96,7 @@ func run() error {
 	dbChecker := platformgrpc.NewDBHealthChecker(db)
 	go platformgrpc.WatchHealth(ctx, hs, serviceName, dbChecker, 10*time.Second, logger)
 
-	// Repository (will be used by gRPC handler in T2.2).
-	_ = account.NewMySQLRepository(db, logger, metrics)
+	repo := account.NewMySQLRepository(db, logger, metrics)
 
 	port := getEnv("GRPC_PORT", "9002")
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
@@ -106,7 +106,8 @@ func run() error {
 
 	grpcServer := platformgrpc.NewServer(logger, metrics, hs)
 
-	// TODO: Register service implementations (T2.2)
+	handler := account.NewServer(repo, logger)
+	accountv1.RegisterAccountServiceServer(grpcServer, handler)
 
 	logger.Info("Account service listening", zap.String("port", port))
 
