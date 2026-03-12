@@ -112,10 +112,15 @@ func (r *MySQLRepository) PostTransaction(ctx context.Context, tx Transaction) (
 		balances[AccountID(pair.accountID)] = Amount(balance)
 	}
 
-	// Check overdraft using the domain logic. The balances map is keyed by
-	// AccountID alone, which is safe because Validate() enforces that all
-	// postings share the same asset (ErrAssetMismatch).
-	if err := tx.CheckOverdraft(balances); err != nil {
+	// Check overdraft for all accounts except external counterparties
+	// (e.g. "external:deposits"), which go negative by design.
+	checkedBalances := make(map[AccountID]Amount, len(balances))
+	for acctID, bal := range balances {
+		if !acctID.OverdraftExempt() {
+			checkedBalances[acctID] = bal
+		}
+	}
+	if err := tx.CheckOverdraft(checkedBalances); err != nil {
 		return nil, err
 	}
 
