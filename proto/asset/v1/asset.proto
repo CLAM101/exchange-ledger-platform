@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package asset.v1;
+
+option go_package = "github.com/CLAM101/exchange-ledger-platform/proto/gen/asset/v1;assetv1";
+
+service AssetService {
+  // GetAsset returns a single asset by symbol.
+  rpc GetAsset(GetAssetRequest) returns (GetAssetResponse);
+
+  // ListAssets returns all registered assets.
+  rpc ListAssets(ListAssetsRequest) returns (ListAssetsResponse);
+}
+
+message Asset {
+  string symbol = 1;
+  int32 decimals = 2;
+  bool active = 3;
+}
+
+message GetAssetRequest {
+  string symbol = 1;
+}
+
+message GetAssetResponse {
+  Asset asset = 1;
+}
+
+message ListAssetsRequest {}
+
+message ListAssetsResponse {
+  repeated Asset assets = 1;
+}

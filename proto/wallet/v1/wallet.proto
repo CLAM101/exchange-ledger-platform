@@ -12,9 +12,10 @@ service WalletService {
 
 message DepositRequest {
   string user_id = 1;
-  int64 amount = 2; // satoshis, must be > 0
+  int64 amount = 2; // smallest unit (e.g. satoshis), must be > 0
   string reference = 3; // caller-supplied reference
   string idempotency_key = 4;
+  string asset = 5; // e.g. "BTC", "ETH", "USDC"
 }
 
 message DepositResponse {

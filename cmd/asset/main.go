@@ -1,5 +1,5 @@
-// Package main is the entry point for the wallet service.
-// The wallet service handles deposit and withdrawal orchestration.
+// Package main is the entry point for the asset registry service.
+// The asset service provides an in-memory catalogue of supported assets.
 package main
 
 import (
@@ -14,25 +14,20 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
+	"github.com/CLAM101/exchange-ledger-platform/internal/asset"
 	platformgrpc "github.com/CLAM101/exchange-ledger-platform/internal/platform/grpc"
 	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
-	"github.com/CLAM101/exchange-ledger-platform/internal/wallet"
-	accountv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/account/v1"
 	assetv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/asset/v1"
-	ledgerv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/ledger/v1"
-	walletv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/wallet/v1"
 )
 
-const serviceName = "wallet"
+const serviceName = "asset"
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatalf("failed to run wallet service: %v", err)
+		log.Fatalf("failed to run asset service: %v", err)
 	}
 }
 
@@ -53,7 +48,7 @@ func run() error {
 	go func() {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", metrics.Handler())
-		metricsPort := getEnv("METRICS_PORT", "9093")
+		metricsPort := getEnv("METRICS_PORT", "9095")
 		server := &http.Server{
 			Addr:              ":" + metricsPort,
 			Handler:           mux,
@@ -71,43 +66,16 @@ func run() error {
 
 	go func() {
 		<-sigChan
-		logger.Info("shutting down wallet service...")
+		logger.Info("shutting down asset service...")
 		cancel()
 	}()
 
-	// Connect to Account service.
-	accountAddr := getEnv("ACCOUNT_ADDR", "localhost:9002")
-	accountConn, err := grpc.NewClient(accountAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("connecting to account service: %w", err)
-	}
-	defer accountConn.Close() //nolint:errcheck // Best-effort close on shutdown
-	logger.Info("connected to account service", zap.String("addr", accountAddr))
-
-	// Connect to Asset service.
-	assetAddr := getEnv("ASSET_ADDR", "localhost:9004")
-	assetConn, err := grpc.NewClient(assetAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("connecting to asset service: %w", err)
-	}
-	defer assetConn.Close() //nolint:errcheck // Best-effort close on shutdown
-	logger.Info("connected to asset service", zap.String("addr", assetAddr))
-
-	// Connect to Ledger service.
-	ledgerAddr := getEnv("LEDGER_ADDR", "localhost:9001")
-	ledgerConn, err := grpc.NewClient(ledgerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("connecting to ledger service: %w", err)
-	}
-	defer ledgerConn.Close() //nolint:errcheck // Best-effort close on shutdown
-	logger.Info("connected to ledger service", zap.String("addr", ledgerAddr))
-
-	// Health service (no DB checker — wallet is stateless).
+	// Health service (no DB — asset is stateless).
 	hs := health.NewServer()
 	hs.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	hs.SetServingStatus(serviceName, healthpb.HealthCheckResponse_SERVING)
 
-	port := getEnv("GRPC_PORT", "9003")
+	port := getEnv("GRPC_PORT", "9004")
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
@@ -115,13 +83,11 @@ func run() error {
 
 	grpcServer := platformgrpc.NewServer(logger, metrics, hs)
 
-	accountClient := accountv1.NewAccountServiceClient(accountConn)
-	assetClient := assetv1.NewAssetServiceClient(assetConn)
-	ledgerClient := ledgerv1.NewLedgerServiceClient(ledgerConn)
-	handler := wallet.NewServer(accountClient, assetClient, ledgerClient, logger)
-	walletv1.RegisterWalletServiceServer(grpcServer, handler)
+	registry := asset.NewInMemoryRegistry(asset.DefaultAssets())
+	handler := asset.NewServer(registry, logger)
+	assetv1.RegisterAssetServiceServer(grpcServer, handler)
 
-	logger.Info("Wallet service listening", zap.String("port", port))
+	logger.Info("Asset service listening", zap.String("port", port))
 
 	// Start gRPC server.
 	errChan := make(chan error, 1)

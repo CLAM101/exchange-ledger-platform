@@ -26,9 +26,6 @@ type UserAssetAccount struct {
 	CreatedAt       time.Time
 }
 
-// DefaultAsset is the asset automatically linked when a user is created.
-const DefaultAsset = "BTC"
-
 // LedgerAccountID returns the deterministic ledger account ID for a user.
 func LedgerAccountID(id UserID) string {
 	return "user:" + string(id)

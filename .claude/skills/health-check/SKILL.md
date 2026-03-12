@@ -20,6 +20,7 @@ Check the health and status of all running services.
    - Ledger: http://localhost:9091/metrics
    - Account: http://localhost:9092/metrics
    - Wallet: http://localhost:9093/metrics
+   - Asset: http://localhost:9095/metrics
    - Gateway: http://localhost:9094/metrics
 
 3. Check infrastructure services:

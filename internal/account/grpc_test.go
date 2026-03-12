@@ -73,9 +73,6 @@ func TestGRPC_CreateUser_Success(t *testing.T) {
 				CreatedAt:      now,
 			}, nil
 		},
-		linkAssetFn: func(_ context.Context, ua account.UserAssetAccount) (*account.UserAssetAccount, error) {
-			return &ua, nil
-		},
 	}
 
 	client := setupGRPC(t, repo)
@@ -185,5 +182,49 @@ func TestGRPC_GetUser_NotFound(t *testing.T) {
 	}
 	if st.Code() != codes.NotFound {
 		t.Errorf("code = %v, want NotFound", st.Code())
+	}
+}
+
+func TestGRPC_LinkAssetAccount_Success(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{
+		linkAssetFn: func(_ context.Context, ua account.UserAssetAccount) (*account.UserAssetAccount, error) {
+			return &ua, nil
+		},
+	}
+
+	client := setupGRPC(t, repo)
+
+	resp, err := client.LinkAssetAccount(context.Background(), &accountv1.LinkAssetAccountRequest{
+		UserId: "user-grpc-4",
+		Asset:  "ETH",
+	})
+	if err != nil {
+		t.Fatalf("LinkAssetAccount: %v", err)
+	}
+	if resp.LedgerAccountId != "user:user-grpc-4" {
+		t.Errorf("ledger_account_id = %q, want %q", resp.LedgerAccountId, "user:user-grpc-4")
+	}
+	if resp.Asset != "ETH" {
+		t.Errorf("asset = %q, want %q", resp.Asset, "ETH")
+	}
+}
+
+func TestGRPC_LinkAssetAccount_MissingAsset(t *testing.T) {
+	t.Parallel()
+
+	client := setupGRPC(t, &mockRepo{})
+
+	_, err := client.LinkAssetAccount(context.Background(), &accountv1.LinkAssetAccountRequest{
+		UserId: "user-grpc-4",
+	})
+
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got %v", err)
+	}
+	if st.Code() != codes.InvalidArgument {
+		t.Errorf("code = %v, want InvalidArgument", st.Code())
 	}
 }
