@@ -18,12 +18,13 @@ Microservices-based cryptocurrency exchange ledger demonstrating double-entry ac
 │ (metrics :9093) │      │ (metrics :9092) │
 └────────┬────────┘      └─────────────────┘
          │ gRPC                   │
-         ▼                        │
-┌─────────────────┐               │
-│ Ledger :9001    │←──────────────┘
-│ (metrics :9091) │
-└────────┬────────┘
-         │
+         ├───────────────┐        │
+         ▼               ▼        │
+┌─────────────────┐ ┌──────────────────┐
+│ Ledger :9001    │ │ Asset :9004      │
+│ (metrics :9091) │ │ (metrics :9095)  │
+└────────┬────────┘ └──────────────────┘
+         │                (in-memory)
          ▼
       [MySQL 8]
 ```
@@ -31,6 +32,7 @@ Microservices-based cryptocurrency exchange ledger demonstrating double-entry ac
 **Services:**
 - **Ledger** - Core double-entry accounting, balance tracking, overdraft prevention
 - **Account** - User identity, maps users to ledger account IDs
+- **Asset** - In-memory registry of supported assets (symbol, decimals, active)
 - **Wallet** - Deposit/withdrawal orchestration, reservation model
 - **Gateway** - REST facade, translates HTTP to gRPC
 
@@ -166,4 +168,5 @@ make up             # Start everything
 | Ledger  | 9001      | 9091         |
 | Account | 9002      | 9092         |
 | Wallet  | 9003      | 9093         |
+| Asset   | 9004      | 9095         |
 | Gateway | 8080 (HTTP) | 9094       |

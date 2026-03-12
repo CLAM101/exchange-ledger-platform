@@ -19,3 +19,7 @@ scrape_configs:
     static_configs:
       - targets: ['gateway:9094']
 
+  - job_name: 'asset'
+    static_configs:
+      - targets: ['asset:9095']
+

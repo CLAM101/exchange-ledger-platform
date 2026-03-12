@@ -17,6 +17,7 @@ import (
 	"github.com/CLAM101/exchange-ledger-platform/internal/platform/observability"
 	"github.com/CLAM101/exchange-ledger-platform/internal/wallet"
 	accountv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/account/v1"
+	assetv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/asset/v1"
 	ledgerv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/ledger/v1"
 	walletv1 "github.com/CLAM101/exchange-ledger-platform/proto/gen/wallet/v1"
 
@@ -26,7 +27,7 @@ import (
 const bufSize = 1024 * 1024
 
 // setupGRPC creates an in-memory gRPC server+client pair for the wallet service.
-func setupGRPC(t *testing.T, ac accountv1.AccountServiceClient, lc ledgerv1.LedgerServiceClient) walletv1.WalletServiceClient {
+func setupGRPC(t *testing.T, ac accountv1.AccountServiceClient, asc assetv1.AssetServiceClient, lc ledgerv1.LedgerServiceClient) walletv1.WalletServiceClient {
 	t.Helper()
 
 	logger := zap.NewNop()
@@ -35,7 +36,7 @@ func setupGRPC(t *testing.T, ac accountv1.AccountServiceClient, lc ledgerv1.Ledg
 	hs.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
 	grpcServer := platformgrpc.NewServer(logger, metrics, hs)
-	handler := wallet.NewServer(ac, lc, logger)
+	handler := wallet.NewServer(ac, asc, lc, logger)
 	walletv1.RegisterWalletServiceServer(grpcServer, handler)
 
 	lis := bufconn.Listen(bufSize)
@@ -77,12 +78,13 @@ func TestGRPC_Deposit_Success(t *testing.T) {
 		},
 	}
 
-	client := setupGRPC(t, ac, lc)
+	client := setupGRPC(t, ac, validAssetClient(), lc)
 
 	resp, err := client.Deposit(context.Background(), &walletv1.DepositRequest{
 		UserId:         "user-1",
 		Amount:         3000,
 		IdempotencyKey: "grpc-key-1",
+		Asset:          "BTC",
 	})
 	if err != nil {
 		t.Fatalf("Deposit: %v", err)
@@ -95,11 +97,12 @@ func TestGRPC_Deposit_Success(t *testing.T) {
 func TestGRPC_Deposit_InvalidArgument(t *testing.T) {
 	t.Parallel()
 
-	client := setupGRPC(t, &mockAccountClient{}, &mockLedgerClient{})
+	client := setupGRPC(t, &mockAccountClient{}, validAssetClient(), &mockLedgerClient{})
 
 	_, err := client.Deposit(context.Background(), &walletv1.DepositRequest{
 		Amount:         1000,
 		IdempotencyKey: "key-1",
+		Asset:          "BTC",
 		// Missing user_id
 	})
 
@@ -117,16 +120,86 @@ func TestGRPC_Deposit_UserNotFound(t *testing.T) {
 
 	ac := &mockAccountClient{
 		getLedgerAccountFn: func(_ context.Context, _ *accountv1.GetLedgerAccountRequest, _ ...grpc.CallOption) (*accountv1.GetLedgerAccountResponse, error) {
+			return nil, status.Error(codes.NotFound, "not found")
+		},
+		linkAssetAccountFn: func(_ context.Context, _ *accountv1.LinkAssetAccountRequest, _ ...grpc.CallOption) (*accountv1.LinkAssetAccountResponse, error) {
 			return nil, status.Error(codes.NotFound, "user not found")
 		},
 	}
 
-	client := setupGRPC(t, ac, &mockLedgerClient{})
+	client := setupGRPC(t, ac, validAssetClient(), &mockLedgerClient{})
 
 	_, err := client.Deposit(context.Background(), &walletv1.DepositRequest{
 		UserId:         "nonexistent",
 		Amount:         1000,
 		IdempotencyKey: "key-1",
+		Asset:          "BTC",
+	})
+
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got %v", err)
+	}
+	if st.Code() != codes.NotFound {
+		t.Errorf("code = %v, want NotFound", st.Code())
+	}
+}
+
+func TestGRPC_Deposit_LazyLinkSuccess(t *testing.T) {
+	t.Parallel()
+
+	ac := &mockAccountClient{
+		getLedgerAccountFn: func(_ context.Context, _ *accountv1.GetLedgerAccountRequest, _ ...grpc.CallOption) (*accountv1.GetLedgerAccountResponse, error) {
+			return nil, status.Error(codes.NotFound, "not found")
+		},
+		linkAssetAccountFn: func(_ context.Context, req *accountv1.LinkAssetAccountRequest, _ ...grpc.CallOption) (*accountv1.LinkAssetAccountResponse, error) {
+			return &accountv1.LinkAssetAccountResponse{
+				UserId:          req.UserId,
+				Asset:           req.Asset,
+				LedgerAccountId: "user:" + req.UserId,
+			}, nil
+		},
+	}
+	lc := &mockLedgerClient{
+		postTransactionFn: func(_ context.Context, _ *ledgerv1.PostTransactionRequest, _ ...grpc.CallOption) (*ledgerv1.PostTransactionResponse, error) {
+			return &ledgerv1.PostTransactionResponse{
+				Transaction: &ledgerv1.Transaction{Id: "tx-grpc-lazy"},
+			}, nil
+		},
+	}
+
+	client := setupGRPC(t, ac, validAssetClient(), lc)
+
+	resp, err := client.Deposit(context.Background(), &walletv1.DepositRequest{
+		UserId:         "user-1",
+		Amount:         1000,
+		IdempotencyKey: "grpc-lazy-key",
+		Asset:          "ETH",
+	})
+	if err != nil {
+		t.Fatalf("Deposit: %v", err)
+	}
+	if resp.TransactionId != "tx-grpc-lazy" {
+		t.Errorf("transaction_id = %q, want %q", resp.TransactionId, "tx-grpc-lazy")
+	}
+}
+
+func TestGRPC_Deposit_UnknownAsset(t *testing.T) {
+	t.Parallel()
+
+	asc := &mockAssetClient{
+		getAssetFn: func(_ context.Context, _ *assetv1.GetAssetRequest, _ ...grpc.CallOption) (*assetv1.GetAssetResponse, error) {
+			return nil, status.Error(codes.NotFound, "asset not found")
+		},
+	}
+
+	client := setupGRPC(t, &mockAccountClient{}, asc, &mockLedgerClient{})
+
+	_, err := client.Deposit(context.Background(), &walletv1.DepositRequest{
+		UserId:         "user-1",
+		Amount:         1000,
+		IdempotencyKey: "key-1",
+		Asset:          "DOGE",
 	})
 
 	st, ok := status.FromError(err)

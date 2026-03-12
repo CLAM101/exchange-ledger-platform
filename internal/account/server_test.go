@@ -105,10 +105,6 @@ func TestCreateUser_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 
-	var linkCalled bool
-	var linkedAsset string
-	var linkedLedgerID string
-
 	repo := &mockRepo{
 		createUserFn: func(_ context.Context, u account.User) (*account.User, error) {
 			return &account.User{
@@ -117,12 +113,6 @@ func TestCreateUser_Success(t *testing.T) {
 				IdempotencyKey: u.IdempotencyKey,
 				CreatedAt:      now,
 			}, nil
-		},
-		linkAssetFn: func(_ context.Context, ua account.UserAssetAccount) (*account.UserAssetAccount, error) {
-			linkCalled = true
-			linkedAsset = ua.Asset
-			linkedLedgerID = ua.LedgerAccountID
-			return &ua, nil
 		},
 	}
 	srv := newTestServer(repo)
@@ -139,15 +129,6 @@ func TestCreateUser_Success(t *testing.T) {
 	}
 	if resp.User.Email != "alice@example.com" {
 		t.Errorf("email = %q, want %q", resp.User.Email, "alice@example.com")
-	}
-	if !linkCalled {
-		t.Error("LinkAssetAccount was not called")
-	}
-	if linkedAsset != account.DefaultAsset {
-		t.Errorf("linked asset = %q, want %q", linkedAsset, account.DefaultAsset)
-	}
-	if linkedLedgerID != "user:user-abc" {
-		t.Errorf("linked ledger ID = %q, want %q", linkedLedgerID, "user:user-abc")
 	}
 }
 
@@ -348,5 +329,74 @@ func TestGetLedgerAccount_NotFound(t *testing.T) {
 	}
 	if st.Code() != codes.NotFound {
 		t.Errorf("code = %v, want NotFound", st.Code())
+	}
+}
+
+// --- LinkAssetAccount tests ---
+
+func TestLinkAssetAccount_MissingUserID(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(&mockRepo{})
+
+	_, err := srv.LinkAssetAccount(context.Background(), &accountv1.LinkAssetAccountRequest{
+		Asset: "BTC",
+	})
+
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got %v", err)
+	}
+	if st.Code() != codes.InvalidArgument {
+		t.Errorf("code = %v, want InvalidArgument", st.Code())
+	}
+}
+
+func TestLinkAssetAccount_MissingAsset(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(&mockRepo{})
+
+	_, err := srv.LinkAssetAccount(context.Background(), &accountv1.LinkAssetAccountRequest{
+		UserId: "user-abc",
+	})
+
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got %v", err)
+	}
+	if st.Code() != codes.InvalidArgument {
+		t.Errorf("code = %v, want InvalidArgument", st.Code())
+	}
+}
+
+func TestLinkAssetAccount_Success(t *testing.T) {
+	t.Parallel()
+
+	var capturedUA account.UserAssetAccount
+	repo := &mockRepo{
+		linkAssetFn: func(_ context.Context, ua account.UserAssetAccount) (*account.UserAssetAccount, error) {
+			capturedUA = ua
+			return &ua, nil
+		},
+	}
+	srv := newTestServer(repo)
+
+	resp, err := srv.LinkAssetAccount(context.Background(), &accountv1.LinkAssetAccountRequest{
+		UserId: "user-abc",
+		Asset:  "ETH",
+	})
+	if err != nil {
+		t.Fatalf("LinkAssetAccount: %v", err)
+	}
+	if resp.UserId != "user-abc" {
+		t.Errorf("user_id = %q, want %q", resp.UserId, "user-abc")
+	}
+	if resp.Asset != "ETH" {
+		t.Errorf("asset = %q, want %q", resp.Asset, "ETH")
+	}
+	if resp.LedgerAccountId != "user:user-abc" {
+		t.Errorf("ledger_account_id = %q, want %q", resp.LedgerAccountId, "user:user-abc")
+	}
+	if capturedUA.UserID != "user-abc" {
+		t.Errorf("repo user_id = %q, want %q", capturedUA.UserID, "user-abc")
 	}
 }

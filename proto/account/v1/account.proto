@@ -7,7 +7,7 @@ option go_package = "github.com/CLAM101/exchange-ledger-platform/proto/gen/accou
 import "google/protobuf/timestamp.proto";
 
 service AccountService {
-  // CreateUser registers a new user and auto-links a BTC ledger account.
+  // CreateUser registers a new user.
   // Idempotent: replaying the same idempotency_key returns the existing result.
   rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
 
@@ -16,6 +16,10 @@ service AccountService {
 
   // GetLedgerAccount returns the ledger account ID for a user and asset pair.
   rpc GetLedgerAccount(GetLedgerAccountRequest) returns (GetLedgerAccountResponse);
+
+  // LinkAssetAccount links a user to a ledger account for a given asset.
+  // Idempotent: linking an already-linked asset returns the existing mapping.
+  rpc LinkAssetAccount(LinkAssetAccountRequest) returns (LinkAssetAccountResponse);
 }
 
 message User {
@@ -47,6 +51,17 @@ message GetLedgerAccountRequest {
 }
 
 message GetLedgerAccountResponse {
+  string user_id = 1;
+  string asset = 2;
+  string ledger_account_id = 3;
+}
+
+message LinkAssetAccountRequest {
+  string user_id = 1;
+  string asset = 2;
+}
+
+message LinkAssetAccountResponse {
   string user_id = 1;
   string asset = 2;
   string ledger_account_id = 3;

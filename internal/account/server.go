@@ -24,7 +24,7 @@ func NewServer(repo Repository, logger *zap.Logger) *Server {
 	return &Server{repo: repo, logger: logger}
 }
 
-// CreateUser registers a new user and auto-links the default BTC ledger account.
+// CreateUser registers a new user.
 func (s *Server) CreateUser(ctx context.Context, req *accountv1.CreateUserRequest) (*accountv1.CreateUserResponse, error) {
 	u := User{
 		Email:          req.Email,
@@ -41,19 +41,6 @@ func (s *Server) CreateUser(ctx context.Context, req *accountv1.CreateUserReques
 			zap.Error(err),
 		)
 		return nil, domainToStatus(err)
-	}
-
-	// Auto-link the default asset account.
-	if _, err := s.repo.LinkAssetAccount(ctx, UserAssetAccount{
-		UserID:          user.ID,
-		Asset:           DefaultAsset,
-		LedgerAccountID: LedgerAccountID(user.ID),
-	}); err != nil {
-		s.logger.Error("LinkAssetAccount failed after user creation",
-			zap.String("user_id", string(user.ID)),
-			zap.Error(err),
-		)
-		return nil, status.Error(codes.Internal, "failed to link asset account")
 	}
 
 	return &accountv1.CreateUserResponse{
@@ -95,6 +82,37 @@ func (s *Server) GetLedgerAccount(ctx context.Context, req *accountv1.GetLedgerA
 		UserId:          req.UserId,
 		Asset:           req.Asset,
 		LedgerAccountId: ledgerID,
+	}, nil
+}
+
+// LinkAssetAccount links a user to a ledger account for a given asset.
+func (s *Server) LinkAssetAccount(ctx context.Context, req *accountv1.LinkAssetAccountRequest) (*accountv1.LinkAssetAccountResponse, error) {
+	if req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id is required")
+	}
+	if req.Asset == "" {
+		return nil, status.Error(codes.InvalidArgument, "asset is required")
+	}
+
+	uid := UserID(req.UserId)
+	ua, err := s.repo.LinkAssetAccount(ctx, UserAssetAccount{
+		UserID:          uid,
+		Asset:           req.Asset,
+		LedgerAccountID: LedgerAccountID(uid),
+	})
+	if err != nil {
+		s.logger.Warn("LinkAssetAccount failed",
+			zap.String("user_id", req.UserId),
+			zap.String("asset", req.Asset),
+			zap.Error(err),
+		)
+		return nil, domainToStatus(err)
+	}
+
+	return &accountv1.LinkAssetAccountResponse{
+		UserId:          req.UserId,
+		Asset:           ua.Asset,
+		LedgerAccountId: ua.LedgerAccountID,
 	}, nil
 }
 

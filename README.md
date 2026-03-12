@@ -8,6 +8,7 @@ This monorepo contains the following services:
 
 - **Ledger Service** - Core double-entry accounting ledger with ACID guarantees
 - **Account Service** - User identity and account management
+- **Asset Service** - In-memory asset registry (symbols, decimals, active status)
 - **Wallet Service** - Deposit/withdrawal orchestration
 - **Gateway Service** - HTTP REST API gateway
 
@@ -62,6 +63,7 @@ make down
 ├── cmd/                    # Service entrypoints
 │   ├── ledger/            # Ledger service main
 │   ├── account/           # Account service main
+│   ├── asset/             # Asset registry service main
 │   ├── wallet/            # Wallet service main
 │   └── gateway/           # Gateway service main
 ├── internal/              # Private application code
@@ -70,6 +72,7 @@ make down
 │   │   └── grpc/          # gRPC server/client helpers
 │   ├── ledger/            # Ledger domain logic
 │   ├── account/           # Account domain logic
+│   ├── asset/             # Asset registry domain logic
 │   └── wallet/            # Wallet domain logic
 ├── proto/                 # Protocol Buffer definitions
 ├── deploy/                # Deployment configurations
