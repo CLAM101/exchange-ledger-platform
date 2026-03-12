@@ -2,10 +2,24 @@
 // and overdraft prevention for the exchange ledger platform.
 package ledger
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // AccountID uniquely identifies a ledger account.
+// System accounts use known prefixes ("external:", "fees:", "pool:").
+// User accounts use the "user:" prefix.
 type AccountID string
+
+// OverdraftExempt returns true for accounts that are allowed to go negative.
+// Only "external:" accounts qualify — these are bookkeeping counterparties
+// (e.g. "external:deposits") that offset real user balances, not actual
+// asset holdings. All other accounts (user, fees, pool, unknown) are
+// protected by overdraft checks.
+func (id AccountID) OverdraftExempt() bool {
+	return strings.HasPrefix(string(id), "external:")
+}
 
 // Asset identifies the currency being transacted (e.g. "BTC").
 type Asset string

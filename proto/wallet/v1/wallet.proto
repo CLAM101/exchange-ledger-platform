@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package wallet.v1;
+
+option go_package = "github.com/CLAM101/exchange-ledger-platform/proto/gen/wallet/v1;walletv1";
+
+service WalletService {
+  // Deposit credits a user's account from the external deposits source.
+  // Idempotent: the idempotency_key is forwarded to the ledger.
+  rpc Deposit(DepositRequest) returns (DepositResponse);
+}
+
+message DepositRequest {
+  string user_id = 1;
+  int64 amount = 2; // satoshis, must be > 0
+  string reference = 3; // caller-supplied reference
+  string idempotency_key = 4;
+}
+
+message DepositResponse {
+  string transaction_id = 1;
+}
